@@ -51,7 +51,7 @@ def create_automl_dataset(
     dataset_id: str,
     table_name: str = 'training_data',
     dataset_display_name: str = 'crystalvalue_dataset',
-    aiplatform_location: str = 'europe-west4'
+    location: str = 'europe-west4'
     ) -> aiplatform.datasets.tabular_dataset.TabularDataset:
   """Creates AutoML Dataset in the AI Platform.
 
@@ -63,14 +63,14 @@ def create_automl_dataset(
     dataset_id: The Bigquery dataset_id.
     table_name: The Bigquery training dataset name to use for AutoML.
     dataset_display_name: The display name of the AutoML Dataset to be created.
-    aiplatform_location: The location of the AutoML Dataset to be created.
+    location: The location of the AutoML Dataset to be created.
 
   Returns:
     The AI Platform AutoML dataset.
   """
   bigquery_uri = f'bq://{project_id}.{dataset_id}.{table_name}'
 
-  aiplatform.init(project=project_id, location=aiplatform_location)
+  aiplatform.init(project=project_id, location=location)
   dataset = aiplatform.TabularDataset.create(
       display_name=dataset_display_name, bq_source=bigquery_uri)
 
@@ -88,7 +88,7 @@ def train_automl_model(
     target_column: str = 'future_value',
     optimization_objective: str = 'minimize-rmse',
     budget_milli_node_hours: int = 1000,
-    aiplatform_location: str = 'europe-west4'
+    location: str = 'europe-west4'
     ) -> aiplatform.models.Model:
   """Trains an AutoML model given an AutoML Dataset.
 
@@ -115,7 +115,7 @@ def train_automl_model(
       "minimize-rmsle" - Minimize root-mean-squared log error (RMSLE).
     budget_milli_node_hours: The number of node hours to use to train the model
       (times 1000), 1000 milli node hours is 1 mode hour.
-    aiplatform_location: The location to train the AutoML model.
+    location: The location to train the AutoML model.
 
   Returns:
     Vertex AI AutoML model.
@@ -124,7 +124,7 @@ def train_automl_model(
                      for feature in aiplatform_dataset.column_names
                      if feature not in _NON_FEATURES]
 
-  aiplatform.init(project=project_id, location=aiplatform_location)
+  aiplatform.init(project=project_id, location=location)
   job = aiplatform.AutoMLTabularTrainingJob(
       display_name=model_display_name,
       optimization_prediction_type='regression',

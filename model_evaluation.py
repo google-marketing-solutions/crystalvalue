@@ -22,14 +22,17 @@ import seaborn as sns
 
 
 def _fetch_test_set_predictions_from_bigquery(
-    bigquery_client: bigquery.Client, dataset_name: str,
-    predictions_table: str) -> pd.DataFrame:
+    bigquery_client: bigquery.Client,
+    dataset_name: str,
+    predictions_table: str,
+    location: str) -> pd.DataFrame:
   """Helper function for fetching model predictions from Big Query.
 
   Args:
     bigquery_client: BigQuery client.
     dataset_name: Dataset with LTV predictions from CrystalValue.
     predictions_table: Dataset with LTV predictions from CrystalValue.
+    location: Bigquery data location.
 
   Returns:
       Dataframe with customer id,actual and predicted LTV.
@@ -41,7 +44,7 @@ def _fetch_test_set_predictions_from_bigquery(
     FROM `{bigquery_client.project}.{dataset_name}.{predictions_table}`,
     UNNEST (predicted_subsequent_ad_revenue)
   """
-  return bigquery_client.query(query, location='EU').result().to_dataframe()
+  return bigquery_client.query(query, location=location).result().to_dataframe()
 
 
 def _calculate_bin_averages(y_actual: pd.Series, y_predicted: pd.Series,
@@ -143,7 +146,7 @@ def _load_table_to_bigquery(data: pd.DataFrame,
                             bigquery_client: bigquery.Client,
                             dataset_name: str,
                             table_name: str,
-                            bigquery_location: str = 'EU') -> None:
+                            location: str) -> None:
   """Loads a Pandas Dataframe to Bigquery."""
   table_id = f'{bigquery_client.project}.{dataset_name}.{table_name}'
   job_config = bigquery.job.LoadJobConfig(
@@ -152,7 +155,7 @@ def _load_table_to_bigquery(data: pd.DataFrame,
       dataframe=data,
       destination=table_id,
       job_config=job_config,
-      location=bigquery_location).result()
+      location=location).result()
 
 
 def _create_summary_stats_data(bin_data: pd.DataFrame, model_display_name: str,
@@ -206,6 +209,7 @@ def evaluate_model_predictions(bigquery_client: bigquery.Client,
                                predictions_table: str,
                                model_display_name: str,
                                table_evaluation_stats: str,
+                               location: str = 'europe-west4',
                                number_bins: int = 10) -> pd.DataFrame:
   """Creates a plot and Big Query table with evaluation metrics for LTV model.
 
@@ -222,6 +226,7 @@ def evaluate_model_predictions(bigquery_client: bigquery.Client,
     predictions_table: Input Big Query Table with predictions from CrystalValue.
     model_display_name: Display Name for the AutoML model.
     table_evaluation_stats: Destination Big Query Table to store model results.
+    location: Bigquery data location.
     number_bins: Number of bins to split the LTV predictions into for
       evaluation. The default split is into deciles.
 
@@ -232,7 +237,8 @@ def evaluate_model_predictions(bigquery_client: bigquery.Client,
   test_data = _fetch_test_set_predictions_from_bigquery(
       bigquery_client=bigquery_client,
       dataset_name=dataset_name,
-      predictions_table=predictions_table)
+      predictions_table=predictions_table,
+      location=location)
   y_actual = test_data['actual_future_value']
   y_predicted = test_data['predicted_future_value']
   spearman_correlation = round(stats.spearmanr(y_actual, y_predicted)[0], 2)
@@ -251,4 +257,5 @@ def evaluate_model_predictions(bigquery_client: bigquery.Client,
       data=summary_stats_model,
       bigquery_client=bigquery_client,
       dataset_name=dataset_name,
-      table_name=table_evaluation_stats)
+      table_name=table_evaluation_stats,
+      location=location)

@@ -76,8 +76,8 @@ class CrystalValue:
     numerical_features: The names of numerical features to be processed.
     non_numerical_features: The names of non-numerical features to be processed.
       These should be either categorical or text features.
-    bigquery_location: The location to write the table in BigQuery (e.g. 'EU').
-    aiplatform_location: The location for the AI Platforms dataset and model.
+    location: The Bigquery and Vertex AI location for processing
+      (e.g. 'europe-west4' or 'us-east-4')
     window_date: The date to create 'customer-windows'. CrystalValue will train
       a model using data from 1 year before this date to predict value from 1
       year after this date. If `None` (default), then CrystalValue will set
@@ -91,8 +91,7 @@ class CrystalValue:
   value_column: str = 'value'
   numerical_features: Optional[FrozenSet[str]] = None
   non_numerical_features: Optional[FrozenSet[str]] = None
-  bigquery_location: str = 'EU'
-  aiplatform_location: str = 'europe-west4'
+  location: str = 'europe-west4'
   window_date: Optional[str] = None
 
   def create_synthetic_data(
@@ -124,7 +123,7 @@ class CrystalValue:
         start_date=start_date,
         end_date=end_date,
         load_table_to_bigquery=True,
-        bigquery_location=self.bigquery_location)
+        location=self.location)
 
   def feature_engineer(
       self,
@@ -176,7 +175,7 @@ class CrystalValue:
         customer_id_column=self.customer_id_column,
         date_column=self.date_column,
         value_column=self.value_column,
-        bigquery_location=self.bigquery_location,
+        location=self.location,
         window_date=self.window_date)
 
   def train(self,
@@ -216,7 +215,7 @@ class CrystalValue:
         dataset_id=self.dataset_id,
         table_name=self.training_table_name,
         dataset_display_name=dataset_display_name,
-        aiplatform_location=self.aiplatform_location)
+        location=self.location)
 
     automl.train_automl_model(
         project_id=self.bigquery_client.project,
@@ -226,7 +225,7 @@ class CrystalValue:
         target_column=target_column,
         optimization_objective=optimization_objective,
         budget_milli_node_hours=budget_milli_node_hours,
-        aiplatform_location=self.aiplatform_location)
+        location=self.location)
 
   # TODO() Create AI Platform module for predicting through AutoML
   def predict(self):

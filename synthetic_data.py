@@ -36,7 +36,7 @@ def _load_table_to_bigquery(
     bigquery_client: bigquery.Client,
     dataset_id: str,
     table_name: str,
-    bigquery_location: str = 'EU') -> None:
+    location: str = 'europe-west4') -> None:
   """Loads a Pandas Dataframe to Bigquery."""
   table_id = f'{bigquery_client.project}.{dataset_id}.{table_name}'
   job_config = bigquery.job.LoadJobConfig(
@@ -45,7 +45,7 @@ def _load_table_to_bigquery(
       dataframe=data,
       destination=table_id,
       job_config=job_config,
-      location=bigquery_location).result()
+      location=location).result()
   logging.info('Created table %r', table_id)
 
 
@@ -57,7 +57,7 @@ def create_synthetic_data(
     start_date: str = '2018-01-01',
     end_date: str = '2021-01-01',
     load_table_to_bigquery: bool = False,
-    bigquery_location: str = 'EU') -> pd.DataFrame:
+    location: str = 'europe-west4') -> pd.DataFrame:
   """Creates a synthetic transaction dataset with an option to load to Bigquery.
 
   The transaction dataset contains customer ids which can make multiple
@@ -72,7 +72,7 @@ def create_synthetic_data(
     start_date: The start date of the transactions.
     end_date: The end date of the transactions.
     load_table_to_bigquery: Whether to load the data to Bigquery.
-    bigquery_location: The location of the dataset to load in Bigquery.
+    location: The location of the dataset to load in Bigquery.
 
   Returns:
     The created dataset.
@@ -98,6 +98,6 @@ def create_synthetic_data(
 
   if load_table_to_bigquery:
     _load_table_to_bigquery(
-        data, bigquery_client, dataset_id, table_name, bigquery_location)
+        data, bigquery_client, dataset_id, table_name, location)
 
   return data

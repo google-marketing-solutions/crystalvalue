@@ -81,7 +81,7 @@ def _run_query(
     query: str,
     dataset_id: str,
     destination_table_name: str,
-    bigquery_location: str) -> pd.DataFrame:
+    location: str) -> pd.DataFrame:
   """Runs a query in BigQuery and returns the result.
 
   Args:
@@ -89,7 +89,7 @@ def _run_query(
     query: The SQL query to execute.
     dataset_id: The Bigquery dataset_id.
     destination_table_name: The table to write to.
-    bigquery_location: The location to write the table in BigQuery.
+    location: The location to write the table in BigQuery.
 
   Returns:
     The result of the executed query as a Pandas DataFrame.
@@ -100,7 +100,7 @@ def _run_query(
       write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
   data = bigquery_client.query(
       query, job_config=job_config,
-      location=bigquery_location).result().to_dataframe()
+      location=location).result().to_dataframe()
   logging.info('Created table %r', table_id)
   return data
 
@@ -120,7 +120,7 @@ def build_train_data(
     customer_id_column: str = 'customer_id',
     date_column: str = 'date',
     value_column: str = 'value',
-    bigquery_location: str = 'EU',
+    location: str = 'europe-west4',
     numerical_transformations: FrozenSet[str] = _NUMERICAL_TRANSFORMATIONS,
     window_date: Optional[str] = None) -> pd.DataFrame:
   """Builds training data from transaction data through BigQuery.
@@ -152,7 +152,7 @@ def build_train_data(
     customer_id_column: The name of the customer id column.
     date_column: The name of the date column.
     value_column: The name of the value column.
-    bigquery_location: The location to write the table in BigQuery.
+    location: The location to write the table in BigQuery.
     numerical_transformations: The types of transformations for numerical
       features.
     window_date: The date to create 'customer-windows'
@@ -215,4 +215,4 @@ def build_train_data(
   if write_executed_query_file:
     _write_file(substituted_query, write_executed_query_file)
   return _run_query(bigquery_client, substituted_query, dataset_id,
-                    destination_table_name, bigquery_location)
+                    destination_table_name, location)
