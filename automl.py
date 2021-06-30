@@ -19,142 +19,126 @@ Example use:
 project_id = 'my_project'
 dataset_id = 'dataset_ltv'
 table_name = 'training_data'
-model_display_name = 'model1'
+target_column = 'future_value'
 
-dataset_id = automl.create_automl_dataset(
+aiplatform_dataset = automl.create_automl_dataset(
     project_id=project_id,
     dataset_id=dataset_id,
-    table_name=table_name,
-    dataset_display_name=table_name)
+    table_name=table_name)
 
-response = automl.train_automl_model(
+automl.train_automl_model(
     project_id=project_id,
-    dataset_id=dataset_id,
-    dataset_display_name=table_name,
-    model_display_name=table_name)
+    aiplatform_dataset=aiplatform_dataset,
+    target_column=target_column)
+
 """
 
 import logging
-from typing import List
 
 from google.cloud import aiplatform
-
-from google3.google.protobuf import struct_pb2
-from google3.net.proto2.python.public import json_format
-
-# External use: from google.protobuf import json_format
 
 
 logging.getLogger().setLevel(logging.INFO)
 
+_NON_FEATURES = [
+    'customer_id', 'window_date', 'lookback_start', 'lookahead_start',
+    'lookahead_stop', 'future_value', 'predefined_split_column'
+]
+
 
 def create_automl_dataset(
-    aiplatform_client: aiplatform.gapic.DatasetServiceClient,
     project_id: str,
     dataset_id: str,
-    table_name: str,
-    dataset_display_name: str,
-    aiplatform_location: str = 'europe-west4',
-    timeout: int = 300) -> str:
+    table_name: str = 'training_data',
+    dataset_display_name: str = 'crystalvalue_dataset',
+    aiplatform_location: str = 'europe-west4'
+    ) -> aiplatform.datasets.tabular_dataset.TabularDataset:
   """Creates AutoML Dataset in the AI Platform.
 
   An AutoML Dataset is required before training a model. See
-  https://cloud.google.com/ai-platform-unified/docs/datasets/create-dataset-api#tabular_1
+  https://cloud.google.com/vertex-ai/docs/datasets/create-dataset-api
 
   Args:
-    aiplatform_client: AutoML client.
     project_id: The Bigquery project_id.
     dataset_id: The Bigquery dataset_id.
     table_name: The Bigquery training dataset name to use for AutoML.
     dataset_display_name: The display name of the AutoML Dataset to be created.
     aiplatform_location: The location of the AutoML Dataset to be created.
-    timeout: The timeout in seconds for creating the Dataset.
 
   Returns:
-    The ID of the dataset.
+    The AI Platform AutoML dataset.
   """
   bigquery_uri = f'bq://{project_id}.{dataset_id}.{table_name}'
-  metadata_dict = {'input_config': {'bigquery_source': {'uri': bigquery_uri}}}
-  metadata = json_format.ParseDict(metadata_dict, struct_pb2.Value())
 
-  dataset = {
-      'display_name': dataset_display_name,
-      'metadata_schema_uri': ('gs://google-cloud-aiplatform/schema/dataset/'
-                              'metadata/tabular_1.0.0.yaml'),
-      'metadata': metadata,
-  }
-  parent = f'projects/{project_id}/locations/{aiplatform_location}'
-  response = aiplatform_client.create_dataset(parent=parent, dataset=dataset)
-  create_dataset_response = response.result(timeout=timeout)
-  logging.info('Created AutoML AI Platform Dataset with display name %r',
+  aiplatform.init(project=project_id, location=aiplatform_location)
+  dataset = aiplatform.TabularDataset.create(
+      display_name=dataset_display_name, bq_source=bigquery_uri)
+
+  dataset.wait()
+  logging.info('Created AI Platform Dataset with display name %r',
                dataset_display_name)
-  dataset_id = create_dataset_response.name.split('/')[-1]
-  return dataset_id
+  return dataset
 
 
 def train_automl_model(
-    aiplatform_client: aiplatform.gapic.DatasetServiceClient,
     project_id: str,
-    dataset_id: str,
-    dataset_display_name: str,
-    model_display_name: str,
-    features: List[str],
-    target_column: str = 'target',
-    training_budget_milli_node_hours: int = 1000,
-    aiplatform_location: str = 'europe-west4') -> None:
+    aiplatform_dataset: str,
+    model_display_name: str = 'crystalvalue_model',
+    predefined_split_column_name: str = 'predefined_split_column',
+    target_column: str = 'future_value',
+    optimization_objective: str = 'minimize-rmse',
+    budget_milli_node_hours: int = 1000,
+    aiplatform_location: str = 'europe-west4'
+    ) -> aiplatform.models.Model:
   """Trains an AutoML model given an AutoML Dataset.
 
   See:
-  https://github.com/googleapis/python-aiplatform/blob/master/samples/snippets/create_training_pipeline_tabular_regression_sample.py
-  https://cloud.google.com/ai-platform-unified/docs/training/automl-api#training_an_automl_model_using_the_api
+  https://cloud.google.com/vertex-ai/docs/training/automl-api
 
   Args:
-    aiplatform_client: AutoML client.
     project_id: The Bigquery project_id.
-    dataset_id: The Bigquery dataset_id.
-    dataset_display_name: The display name of the AutoML Dataset to use.
+    aiplatform_dataset: The dataset in the AI Platform used for AutoML.
     model_display_name: The name of the AutoML model to create.
-    features: The features to use in the model.
+    predefined_split_column_name: The key is a name of one of the Dataset's data
+        columns. The value of the key (either the label's value or
+        value in the column) must be one of {``training``,
+        ``validation``, ``test``}, and it defines to which set the
+        given piece of data is assigned. If for a piece of data the
+        key is not present or has an invalid value, that piece is
+        ignored by the pipeline.
     target_column: The target to predict.
-    training_budget_milli_node_hours: The number of node hours to use to train
-      the model (times 1000), 1000 milli node hours is 1 mode hour.
+    optimization_objective: Objective function the Model is to be optimized
+      towards. The training task creates a Model that maximizes/minimizes the
+      value of the objective function over the validation set.
+      "minimize-rmse" (default) - Minimize root-mean-squared error (RMSE).
+      "minimize-mae" - Minimize mean-absolute error (MAE).
+      "minimize-rmsle" - Minimize root-mean-squared log error (RMSLE).
+    budget_milli_node_hours: The number of node hours to use to train the model
+      (times 1000), 1000 milli node hours is 1 mode hour.
     aiplatform_location: The location to train the AutoML model.
-  """
-  # Set the columns used for training and their data types.
-  # 'auto' option allows AutoML to detect data types automatically.
-  transformations = []
-  for feature in features:
-    transformations.append({'auto': {'column_name': f'{feature}'}})
-  training_task_inputs_dict = {
-      'targetColumn': target_column,
-      'predictionType': 'regression',
-      'transformations': transformations,
-      'trainBudgetMilliNodeHours': training_budget_milli_node_hours,
-      'disableEarlyStopping': False,
-      # Optimisation objectives: minimize-rmse, minimize-mae, minimize-rmsle.
-      'optimizationObjective': 'minimize-rmse',
-  }
-  training_task_inputs = json_format.ParseDict(training_task_inputs_dict,
-                                               struct_pb2.Value())
 
-  training_pipeline = {
-      'display_name': dataset_display_name,
-      'training_task_definition': ('gs://google-cloud-aiplatform/schema/'
-                                   'trainingjob/definition/automl_tabular_1.0'
-                                   '.0.yaml'),
-      'training_task_inputs': training_task_inputs,
-      'input_data_config': {
-          'dataset_id': dataset_id,
-          'fraction_split': {
-              'training_fraction': 0.8,
-              'validation_fraction': 0.1,
-              'test_fraction': 0.1,
-          },
-      },
-      'model_to_upload': {
-          'display_name': model_display_name
-      },
-  }
-  parent = f'projects/{project_id}/locations/{aiplatform_location}'
-  aiplatform_client.create_training_pipeline(
-      parent=parent, training_pipeline=training_pipeline)
+  Returns:
+    Vertex AI AutoML model.
+  """
+  transformations = [{'auto': {'column_name': f'{feature}'}}
+                     for feature in aiplatform_dataset.column_names
+                     if feature not in _NON_FEATURES]
+
+  aiplatform.init(project=project_id, location=aiplatform_location)
+  job = aiplatform.AutoMLTabularTrainingJob(
+      display_name=model_display_name,
+      optimization_prediction_type='regression',
+      optimization_objective=optimization_objective,
+      column_transformations=transformations)
+
+  model = job.run(
+      dataset=aiplatform_dataset,
+      target_column=target_column,
+      budget_milli_node_hours=budget_milli_node_hours,
+      model_display_name=model_display_name,
+      predefined_split_column_name=predefined_split_column_name)
+
+  model.wait()
+  logging.info('Created AI Platform Model with display name %r',
+               model.display_name)
+  return model

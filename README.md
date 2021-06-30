@@ -1,19 +1,19 @@
-# crystalvalue
+# Crystalvalue
 
 ## Overview
 
 Crystalvalue is a best practice comprehensive framework for running end-to-end
-LTV solutions leveraging Cloud AutoML. It provides best in class templates to
-support data scientists in building and iteratively improving their LTV models,
-enabling them to turn around LTV projects at pace.
+LTV solutions leveraging Google Cloud Vertex AI AutoML. It provides templates
+to support data scientists in building and iteratively improving their LTV
+models, enabling them to turn around LTV projects at pace.
 
 ## Problem statement
 
-LTV is one of the most common marketing use-cases we support clients on. While 
+LTV is one of the most common marketing use-cases we support clients on. While
 we have plenty of resources on the topic e.g. code, part solutions
 and presentations, there is no single comprehensive framework which covers
 all the component parts of an LTV project. As a result, data scientists often
-start from scratch and end up delivering solutions that do not follow best 
+start from scratch and end up delivering solutions that do not follow best
 practice and in many cases do not create impact as they are not activated.
 
 ## Solution description
@@ -21,14 +21,15 @@ practice and in many cases do not create impact as they are not activated.
 
 
 CrystalValue is a best practice comprehensive framework for running end-to-end
-LTV solutions which leverages cutting edge GCP capabilites including:
+LTV solutions which leverages cutting edge Google Cloud Platform capabilites
+including:
 
-*   Cloud AutomL
+*   Vertex AI AutoML
 *   AI platform
 *   What IF tool
 
-It covers the entire modeling lifecycle including feature engineering and 
-preprocessing, model training, calibration, evaluation and maintenance and aims 
+It covers the entire modeling lifecycle including feature engineering and
+preprocessing, model training, calibration, evaluation and maintenance and aims
 to ensure time efficiencies and robustness of our LTV projects.
 
 ## Prerequisites

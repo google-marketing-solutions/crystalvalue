@@ -14,55 +14,46 @@
 
 """Main module to train and predict a CrystalValue LTV model.
 
-The CrystalValue LTV model uses AutoML Tables through the AI Platform (Unified).
+The CrystalValue LTV model uses Vertex AI AutoML Tables.
 
 
-Example usage:
+Minimal example:
 
-# Import libraries
 from google.cloud import bigquery
-from google.cloud.aiplatform import aiplatform
 
 import crystalvalue
 
 
-# Create clients for cloud authentication.
+# Create BigQuery client for cloud authentication.
 bigquery_client = bigquery.Client()
-aiplatform_dataservice_client = aiplatform.gapic.DatasetServiceClient()
-aiplatform_pipeline_client = aiplatform.gapic.PipelineServiceClient()
-
 
 # Initiate the CrystalValue class.
-crystal_value = crystalvalue.CrystalValue(
+pipeline = crystalvalue.CrystalValue(
     bigquery_client=bigquery_client,
-    aiplatform_dataservice_client=aiplatform_dataservice_client,
-    aiplatform_pipeline_client=aiplatform_pipeline_client,
     dataset_id='ltv_dataset')
-
 
 # (Optional) If you are just testing out CrystalValue, use this method to
 # create a synthetic transaction dataset and load it to BigQuery.
-data = crystal_value.create_synthetic_data(table_name='synthetic_data')
-
+data = pipeline.create_synthetic_data(table_name='synthetic_data')
 
 # Perform feature engineering using BigQuery.
 # CrystalValue automatically detects data types and applies transformations.
-# CrystalValue by default will predict 1 year ahead (configurable)
-training_data = crystal_value.feature_engineer(
+# CrystalValue by default will predict 1 year ahead (configurable) using data
+# accumulated from 1 year before (configurable).
+training_data = pipeline.feature_engineer(
     transaction_table_name='synthetic_data',
     query_template_train_file='./sql_templates/train_user_split.sql')
 
 # Creates AI Platform Dataset and trains AutoML model.
-crystal_value.train(training_budget_milli_node_hours=1000)
+pipeline.train()
 
 # Check out your trained AutoML model in the Google Cloud Platform UI!
-# https://console.cloud.google.com/ai-platform/models
+# https://console.cloud.google.com//vertex-ai/models
 """
 
 from typing import FrozenSet, Optional
 
 import dataclasses
-from google.cloud import aiplatform
 from google.cloud import bigquery
 import pandas as pd
 
@@ -77,25 +68,24 @@ class CrystalValue:
 
   Attributes:
     bigquery_client: BigQuery client.
-    aiplatform_dataservice_client: AI Platform client for creating dataset.
-    aiplatform_pipeline_client: AI Platform client for training pipeline.
     dataset_id: The Bigquery dataset_id.
-    training_dataset_name: The name of the training data table to be created.
+    training_table_name: The name of the training table to be created.
     customer_id_column: The name of the customer id column.
     date_column: The name of the date column.
     value_column: The name of the future value column.
     numerical_features: The names of numerical features to be processed.
     non_numerical_features: The names of non-numerical features to be processed.
       These should be either categorical or text features.
-    bigquery_location: The location to write the table in BigQuery.
+    bigquery_location: The location to write the table in BigQuery (e.g. 'EU').
     aiplatform_location: The location for the AI Platforms dataset and model.
-    window_date: The date to create 'customer-windows'
+    window_date: The date to create 'customer-windows'. CrystalValue will train
+      a model using data from 1 year before this date to predict value from 1
+      year after this date. If `None` (default), then CrystalValue will set
+      the window_date to 365 days ago.
   """
   bigquery_client: bigquery.Client
-  aiplatform_dataservice_client: aiplatform.gapic.DatasetServiceClient
-  aiplatform_pipeline_client: aiplatform.gapic.PipelineServiceClient
   dataset_id: str
-  training_dataset_name: str = 'training_data'
+  training_table_name: str = 'training_data'
   customer_id_column: str = 'customer_id'
   date_column: str = 'date'
   value_column: str = 'value'
@@ -108,7 +98,7 @@ class CrystalValue:
   def create_synthetic_data(
       self,
       table_name: str = 'synthetic_data',
-      row_count: int = 50000,
+      row_count: int = 100000,
       start_date: str = '2018-01-01',
       end_date: str = '2021-01-01') -> pd.DataFrame:
     """Creates a synthetic transaction dataset and loads to Bigquery.
@@ -175,7 +165,7 @@ class CrystalValue:
         bigquery_client=self.bigquery_client,
         dataset_id=self.dataset_id,
         transaction_table_name=transaction_table_name,
-        destination_table_name=self.training_dataset_name,
+        destination_table_name=self.training_table_name,
         query_template_train_file=query_template_train_file,
         query_template_train_sql=query_template_train_sql,
         write_executed_query_file=write_executed_query_file,
@@ -189,36 +179,53 @@ class CrystalValue:
         bigquery_location=self.bigquery_location,
         window_date=self.window_date)
 
-  def train(
-      self,
-      training_budget_milli_node_hours: int = 1000,
-      timeout: int = 300) -> None:
-    """Runs feature engineering and AutoML training.
+  def train(self,
+            dataset_display_name: str = 'crystalvalue_dataset',
+            model_display_name: str = 'crystalvalue_model',
+            predefined_split_column_name: str = 'predefined_split_column',
+            target_column: str = 'future_value',
+            optimization_objective: str = 'minimize-rmse',
+            budget_milli_node_hours: int = 1000) -> None:
+    """Creates Vertex AI Dataset and trains an AutoML Tabular model.
+
+    An AutoML Dataset is required before training a model. See
+    https://cloud.google.com/vertex-ai/docs/datasets/create-dataset-api
+    https://cloud.google.com/vertex-ai/docs/training/automl-api
 
     Args:
-      training_budget_milli_node_hours: The number of node hours to use to train
-        the model (times 1000), 1000 milli node hours is 1 mode hour.
-      timeout: The timeout in seconds for creating the Dataset.
+      dataset_display_name: The display name of the Dataset to create.
+      model_display_name: The display name of the Model to create.
+      predefined_split_column_name: A name of one of the Dataset's columns.
+        The values of the column must be one of {``training``, ``validation``,
+        ``test``}, and it defines to which set the given piece of data is
+        assigned. If for a piece of data the key is not present or has an
+        invalid value, that piece is ignored by the pipeline.
+      target_column: The target to predict.
+      optimization_objective: Objective function the Model is to be optimized
+        towards. The training task creates a Model that maximizes/minimizes the
+        value of the objective function over the validation set.
+        "minimize-rmse" (default) - Minimize root-mean-squared error (RMSE).
+        "minimize-mae" - Minimize mean-absolute error (MAE).
+        "minimize-rmsle" - Minimize root-mean-squared log error (RMSLE).
+      budget_milli_node_hours: The number of node hours to use to train the
+        model (times 1000), 1000 milli node hours is 1 mode hour.
     """
-    automl.create_automl_dataset(
-        aiplatform_client=self.aiplatform_dataservice_client,
-        project_id=self.bigquery_client.project,
-        dataset_id=self.dataset_id,
-        table_name=self.training_dataset_name,
-        dataset_display_name=self.training_dataset_name,
-        aiplatform_location=self.aiplatform_location,
-        timeout=timeout)
 
-    features = list(self.numerical_features) + list(self.non_numerical_features)
-    automl.train_automl_model(
-        aiplatform_client=self.aiplatform_pipeline_client,
+    aiplatform_dataset = automl.create_automl_dataset(
         project_id=self.bigquery_client.project,
         dataset_id=self.dataset_id,
-        dataset_display_name=self.training_dataset_name,
-        model_display_name=self.training_dataset_name,
-        features=features,
-        target_column=self.value_column,
-        training_budget_milli_node_hours=training_budget_milli_node_hours,
+        table_name=self.training_table_name,
+        dataset_display_name=dataset_display_name,
+        aiplatform_location=self.aiplatform_location)
+
+    automl.train_automl_model(
+        project_id=self.bigquery_client.project,
+        aiplatform_dataset=aiplatform_dataset,
+        model_display_name=model_display_name,
+        predefined_split_column_name=predefined_split_column_name,
+        target_column=target_column,
+        optimization_objective=optimization_objective,
+        budget_milli_node_hours=budget_milli_node_hours,
         aiplatform_location=self.aiplatform_location)
 
   # TODO() Create AI Platform module for predicting through AutoML

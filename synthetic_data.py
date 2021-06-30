@@ -53,7 +53,7 @@ def create_synthetic_data(
     bigquery_client: Optional[bigquery.Client] = None,
     dataset_id: Optional[str] = None,
     table_name: Optional[str] = 'synthetic_data',
-    row_count: int = 50000,
+    row_count: int = 100000,
     start_date: str = '2018-01-01',
     end_date: str = '2021-01-01',
     load_table_to_bigquery: bool = False,

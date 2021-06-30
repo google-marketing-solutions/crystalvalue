@@ -14,6 +14,9 @@
 
 -- Build training dataset for a machine learning model to predict LTV.
 
+-- The query creates an additional column `predefined_split_column` which takes approximately the
+-- values `TEST` for 15% of rows, `VALIDATE` for 15% of rows and `TRAIN` for 70% of rows.
+
 -- @param window_date STRING The date for the window date
 -- @param days_look_back INT The number of days to look back to create features.
 -- @param days_look_ahead INT The number of days to look ahead to predict LTV.
@@ -53,7 +56,11 @@ GROUP BY
 
 SELECT
   target.*,
-  IF(RAND() > 0.2, 'TRAIN', 'TEST') as train_or_test,
+  CASE
+    WHEN ABS(MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(target.customer_id, target.window_date))), 100)) BETWEEN 0 AND 15 THEN 'TEST'
+    WHEN ABS(MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(target.customer_id, target.window_date))), 100)) BETWEEN 15 AND 30 THEN 'VALIDATE'
+    WHEN ABS(MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(target.customer_id, target.window_date))), 100)) BETWEEN 30 AND 100 THEN 'TRAIN'
+  END as predefined_split_column,
   IFNULL(DATE_DIFF(target.window_date, MAX(DATE(data.{date_column})), DAY),
          {days_look_back}) AS days_since_last_purchase,
   {numerical_features_sql},
@@ -66,4 +73,4 @@ ON
   (data.{customer_id_column} = target.customer_id AND
    DATE(data.{date_column}) BETWEEN target.lookback_start AND DATE(target.window_date))
 GROUP BY
-  1,2,3,4,5,6;
+  1,2,3,4,5,6,7;
