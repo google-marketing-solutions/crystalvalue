@@ -109,7 +109,7 @@ def build_train_data(
     bigquery_client: bigquery.Client,
     dataset_id: str,
     transaction_table_name: str,
-    destination_table_name: str,
+    destination_table_name: str = 'training_data',
     query_template_train_file: Optional[str] = None,
     query_template_train_sql: Optional[str] = None,
     write_executed_query_file: Optional[str] = None,

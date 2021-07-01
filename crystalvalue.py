@@ -49,6 +49,12 @@ pipeline.train()
 
 # Check out your trained AutoML model in the Google Cloud Platform UI!
 # https://console.cloud.google.com//vertex-ai/models
+
+# Now create LTV predictions using the model and input data.
+pipeline.predict(
+  input_table_name='predict_data',
+  model_resource_name='5537281294968291328')
+
 """
 
 from typing import FrozenSet, Optional
@@ -227,6 +233,34 @@ class CrystalValue:
         budget_milli_node_hours=budget_milli_node_hours,
         location=self.location)
 
-  # TODO() Create AI Platform module for predicting through AutoML
-  def predict(self):
-    ...
+  def predict(self,
+              input_table_name: str,
+              model_resource_name: str,
+              model_name: str = 'crystalvalue_model',
+              destination_table: str = 'predictions'):
+    """Creates predictions using Vertex AI model into destination table.
+
+    Args:
+      input_table_name: The table containing features to predict with.
+      model_resource_name: The resource name of the Vertex AI model
+        e.g. '553728129496821'
+      model_name: The name of the Vertex AI trained model
+        e.g. 'crystalvalue_model'.
+      destination_table: The table to either create (if it doesn't exist) or
+        append predictions to within your dataset.
+    """
+
+    batch_predictions = automl.create_batch_predictions(
+        project_id=self.bigquery_client.project,
+        dataset_id=self.dataset_id,
+        model_resource_name=model_resource_name,
+        table_name=input_table_name,
+        location=self.location)
+
+    automl.load_predictions_to_table(
+        bigquery_client=self.bigquery_client,
+        dataset_id=self.dataset_id,
+        batch_predictions=batch_predictions,
+        location=self.location,
+        destination_table=destination_table,
+        model_name=model_name)

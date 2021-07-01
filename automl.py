@@ -34,8 +34,10 @@ automl.train_automl_model(
 """
 
 import logging
+import re
 
 from google.cloud import aiplatform
+from google.cloud import bigquery
 
 
 logging.getLogger().setLevel(logging.INFO)
@@ -142,3 +144,83 @@ def train_automl_model(
   logging.info('Created AI Platform Model with display name %r',
                model.display_name)
   return model
+
+
+def create_batch_predictions(
+    project_id: str,
+    dataset_id: str,
+    table_name: str,
+    model_resource_name: str,
+    location: str) -> aiplatform.BatchPredictionJob:
+  """Creates batch prediction job.
+
+  Args:
+    project_id: The Bigquery project_id.
+    dataset_id: The Bigquery dataset_id containing the data to create
+      predictions with.
+    table_name: The table name containing the data to create predictions with.
+    model_resource_name: The name of the Vertex AI AutoML model.
+    location: The location of the Vertex AI AutoML model.
+
+  Returns:
+    Vertex AI batch prediction object.
+  """
+  bigquery_uri = f'bq://{project_id}.{dataset_id}.{table_name}'
+
+  batch_prediction = aiplatform.BatchPredictionJob.create(
+      job_display_name='crystalvalue_job',
+      model_name=model_resource_name,
+      bigquery_source=bigquery_uri,
+      bigquery_destination_prefix=project_id,
+      location=location)
+
+  return batch_prediction
+
+
+def load_predictions_to_table(bigquery_client: bigquery.Client,
+                              dataset_id: str,
+                              batch_predictions: aiplatform.BatchPredictionJob,
+                              location: str = 'europe-west4',
+                              destination_table: str = 'predictions',
+                              model_name: str = 'crystalvalue_model') -> None:
+  """Extracts data from Vertex AI prediction dataset and into workspace.
+
+  The Vertex AI AutoML automatically puts predictions in a new dataset. This
+  function takes those predictions and puts them into the workspace dataset.
+
+  If any predictions are negative they will be set to 0.
+
+  Args:
+    bigquery_client: BigQuery client.
+    dataset_id: The Bigquery dataset_id.
+    batch_predictions: Vertex AI batch predictions object.
+    location: Data processing location.
+    destination_table: Table to load predictions to within the dataset_id.
+    model_name: The name of the trained model.
+  """
+
+  output_dataset = re.findall('bq://(.*?)\"',
+                              str(batch_predictions.output_info))[0]
+  timestamp = output_dataset.split(model_name)[1]
+  output_table = output_dataset + f'.predictions{timestamp}'
+
+  prediction_table = f'{bigquery_client.project}.{dataset_id}.{destination_table}'
+
+  tables = [table.table_id for table in bigquery_client.list_tables(dataset_id)]
+  if prediction_table.split('.')[-1] in tables:
+    bigquery_option = f'INSERT INTO {prediction_table}'
+  else:
+    bigquery_option = f'CREATE TABLE {prediction_table} AS'
+
+  query = f"""
+  {bigquery_option}
+  SELECT
+    customer_id,
+    lookahead_start,
+    lookahead_stop,
+    IF(predicted_future_value.value < 0,
+       0,
+       predicted_future_value.value) AS future_value_predicted
+  FROM `{output_table}`
+  """
+  bigquery_client.query(query, location=location).result()
