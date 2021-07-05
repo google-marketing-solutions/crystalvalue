@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for model_evaluation."""
 
 import unittest
@@ -29,8 +28,7 @@ class MockModelLtvTest(unittest.TestCase):
   def setUp(self):
     super().setUp()
     self.addCleanup(mock.patch.stopall)
-    self.mock_client = mock.patch.object(
-        bigquery, 'Client', autospec=True)
+    self.mock_client = mock.patch.object(bigquery, 'Client', autospec=True)
     self.mock_client.project = 'test_project'
     self.fetch_test_set_predictions_from_bigquery = mock.patch.object(
         model_evaluation,
@@ -38,6 +36,8 @@ class MockModelLtvTest(unittest.TestCase):
         autospec=True).start()
     self.mock_calculate_bin_averages = mock.patch.object(
         model_evaluation, '_calculate_bin_averages', autospec=True).start()
+    self.mock_calculate_normalized_mae = mock.patch.object(
+        model_evaluation, '_calculate_normalized_mae', autospec=True).start()
     self.mock_compute_gini = mock.patch.object(
         model_evaluation, '_compute_gini', autospec=True).start()
     self.mock_compute_gini_normalized = mock.patch.object(

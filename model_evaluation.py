@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Module for evaluating models built via CrystalValue pipeline."""
 from google.cloud import bigquery
 import matplotlib.pyplot as plt
@@ -19,13 +18,13 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 import seaborn as sns
+from sklearn import metrics
 
 
-def _fetch_test_set_predictions_from_bigquery(
-    bigquery_client: bigquery.Client,
-    dataset_name: str,
-    predictions_table: str,
-    location: str) -> pd.DataFrame:
+def _fetch_test_set_predictions_from_bigquery(bigquery_client: bigquery.Client,
+                                              dataset_name: str,
+                                              predictions_table: str,
+                                              location: str) -> pd.DataFrame:
   """Helper function for fetching model predictions from Big Query.
 
   Args:
@@ -47,6 +46,23 @@ def _fetch_test_set_predictions_from_bigquery(
   return bigquery_client.query(query, location=location).result().to_dataframe()
 
 
+def _calculate_normalized_mae(data: pd.DataFrame) -> np.float:
+  """Helper function for calculating bin level normalized mean absolute error.
+
+  Args:
+    data: Dataframe with actual and predicted LTV.
+
+  Returns:
+      Normalized Mean Absolute Error.
+  """
+  if np.mean(data.ltv_actual) == 0:
+    return np.nan
+  else:
+    return np.round(
+        metrics.mean_absolute_error(data.ltv_actual, data.ltv_predicted) /
+        np.mean(data.ltv_actual), 3)
+
+
 def _calculate_bin_averages(y_actual: pd.Series, y_predicted: pd.Series,
                             number_bins: int) -> pd.DataFrame:
   """Helper function for bin level averages used in creating decile charts.
@@ -58,16 +74,26 @@ def _calculate_bin_averages(y_actual: pd.Series, y_predicted: pd.Series,
       into deciles.
 
   Returns:
-      Dataframe with bin number, Predicted vs. actual bin average LTV.
+      Dataframe with bin number, Predicted vs. actual bin average LTV, bin level
+      MAPE and MAE.
   """
   if number_bins < 2:
     raise ValueError('Number of bins should be 2 or more')
   bin_number = pd.qcut(
       y_predicted.rank(method='first'), number_bins, labels=False)
+
   temporary_data = pd.DataFrame(
       list(zip(y_predicted, y_actual, bin_number)),
-      columns=['predicted_ltv', 'actual_ltv', 'bin'])
-  return temporary_data.groupby('bin').agg('mean').reset_index()
+      columns=['ltv_predicted', 'ltv_actual', 'bin'])
+  bin_stats_data = temporary_data.groupby('bin').agg('mean').round(
+      3).reset_index()
+  bin_stats_data['normalized_MAPE'] = np.round(
+      np.abs(bin_stats_data['ltv_predicted'] - bin_stats_data['ltv_actual']) /
+      bin_stats_data['ltv_actual'], 4)
+  bin_stats_data['normalized_MAE'] = temporary_data.groupby('bin').apply(
+      _calculate_normalized_mae)
+
+  return bin_stats_data
 
 
 def _compute_gini(series1: pd.Series, series2: pd.Series) -> np.float64:
@@ -126,7 +152,8 @@ def _plot_summary_stats(bin_data: pd.DataFrame, spearman_correlation: np.float,
       Plot with Average predicted and actual LTV by decile
       along with Spearman and Normalized Gini Coefficient.
   """
-  plot_data = bin_data.melt(id_vars='bin').rename(columns=str.title)
+  plot_data = bin_data[['bin', 'ltv_predicted', 'ltv_actual'
+                       ]].melt(id_vars='bin').rename(columns=str.title)
   fig, ax1 = plt.subplots(figsize=(10, 7))
   p1 = sns.barplot(x='Bin', y='Value', hue='Variable', data=plot_data)
   ax1.set_title(
@@ -143,10 +170,8 @@ def _plot_summary_stats(bin_data: pd.DataFrame, spearman_correlation: np.float,
 
 
 def _load_table_to_bigquery(data: pd.DataFrame,
-                            bigquery_client: bigquery.Client,
-                            dataset_name: str,
-                            table_name: str,
-                            location: str) -> None:
+                            bigquery_client: bigquery.Client, dataset_name: str,
+                            table_name: str, location: str) -> None:
   """Loads a Pandas Dataframe to Bigquery."""
   table_id = f'{bigquery_client.project}.{dataset_name}.{table_name}'
   job_config = bigquery.job.LoadJobConfig(
@@ -165,7 +190,8 @@ def _create_summary_stats_data(bin_data: pd.DataFrame, model_display_name: str,
 
   This function creates a dataframe with bin level average predicted and actual
   LTV as well as provides overall
-  Spearman Rank Correlation, Normalized Gini coefficient for the model.
+  Spearman Rank Correlation, Normalized Gini coefficient and decile level MAE
+  and MAPE for the model.
 
   Args:
     bin_data: Dataframe with bin number, Predicted vs. actual bin average LTV.
@@ -231,7 +257,8 @@ def evaluate_model_predictions(bigquery_client: bigquery.Client,
       evaluation. The default split is into deciles.
 
   Returns:
-      Dataframe with details of model and average predicted and actual LTV by
+      Dataframe with details of model and average predicted and actual LTV,
+      Normalized MAE and MAPE by
       decile along with Spearman and Normalized Gini Coefficient.
   """
   test_data = _fetch_test_set_predictions_from_bigquery(
@@ -259,3 +286,4 @@ def evaluate_model_predictions(bigquery_client: bigquery.Client,
       dataset_name=dataset_name,
       table_name=table_evaluation_stats,
       location=location)
+  return bin_data
