@@ -35,7 +35,6 @@ SELECT
   DATE_ADD(DATE("{window_date}"), interval 1 day) AS lookahead_start,
   DATE_ADD(DATE("{window_date}"), interval {days_look_ahead} day) AS lookahead_stop
 FROM {project_id}.{dataset_id}.{table_name} AS data
-ORDER BY RAND()
 ),
 
 target AS (
