@@ -63,9 +63,9 @@ import dataclasses
 from google.cloud import bigquery
 import pandas as pd
 
-from solutions.crystalvalue import automl
-from solutions.crystalvalue import feature_engineering
-from solutions.crystalvalue import synthetic_data
+from crystalvalue import automl
+from crystalvalue import feature_engineering
+from crystalvalue import synthetic_data
 
 
 @dataclasses.dataclass

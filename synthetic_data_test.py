@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for solutions.crystalvalue.synthetic_data."""
+"""Tests for crystalvalue.synthetic_data."""
 
 import unittest
 
-from solutions.crystalvalue import synthetic_data
+from crystalvalue import synthetic_data
 
 
 class SyntheticDataTest(unittest.TestCase):

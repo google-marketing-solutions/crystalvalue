@@ -18,7 +18,7 @@ import unittest
 from google.cloud import bigquery
 import mock
 
-from solutions.crystalvalue import model_evaluation
+from crystalvalue import model_evaluation
 
 _NUMBER_BINS = 5
 

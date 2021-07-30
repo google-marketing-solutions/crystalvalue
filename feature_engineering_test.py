@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for solutions.crystalvalue.feature_engineering."""
+"""Tests for crystalvalue.feature_engineering."""
 
 import unittest
 
 from google.cloud import bigquery
 import mock
 
-from solutions.crystalvalue import feature_engineering
+from crystalvalue import feature_engineering
 
 
 class FeatureEngineeringTest(unittest.TestCase):
