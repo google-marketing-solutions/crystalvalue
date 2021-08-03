@@ -27,49 +27,67 @@
 -- @param non_numerical_features STRING The SQL non-numerical features and transformations.
 
 
-WITH customer_windows AS (
+WITH
+  CustomerWindows AS (
+    SELECT DISTINCT
+      TX_DATA.{customer_id_column} AS customer_id,
+      DATE("{window_date}") AS window_date,
+      DATE_SUB(DATE("{window_date}"), INTERVAL {days_look_back} day) AS lookback_start,
+      DATE_ADD(DATE("{window_date}"), INTERVAL 1 day) AS lookahead_start,
+      DATE_ADD(DATE("{window_date}"), INTERVAL {days_look_ahead} day) AS lookahead_stop
+    FROM {project_id}.{dataset_id}.{table_name} AS TX_DATA
+  ),
+  Target AS (
+    SELECT
+      CustomerWindows.*,
+      SUM(IFNULL(TX_DATA.{value_column}, 0)) AS future_value,
+    FROM
+      CustomerWindows
+    LEFT JOIN
+      {project_id}.{dataset_id}.{table_name} AS TX_DATA
+      ON (
+        TX_DATA.{customer_id_column} = CustomerWindows.customer_id
+        AND DATE(TX_DATA.{date_column})
+          BETWEEN CustomerWindows.lookahead_start
+          AND CustomerWindows.lookahead_stop)
+    GROUP BY
+      1, 2, 3, 4, 5
+  )
 SELECT
-  DISTINCT data.{customer_id_column} AS customer_id,
-  DATE("{window_date}") AS window_date,
-  DATE_SUB(DATE("{window_date}"), interval {days_look_back} day) AS lookback_start,
-  DATE_ADD(DATE("{window_date}"), interval 1 day) AS lookahead_start,
-  DATE_ADD(DATE("{window_date}"), interval {days_look_ahead} day) AS lookahead_stop
-FROM {project_id}.{dataset_id}.{table_name} AS data
-),
-
-target AS (
-SELECT
-  customer_windows.*,
-  SUM(IFNULL(data.{value_column}, 0)) as future_value,
-FROM
-  customer_windows
-LEFT JOIN
-  {project_id}.{dataset_id}.{table_name} data
-ON
-  (data.{customer_id_column} = customer_windows.customer_id AND
-   DATE(data.{date_column}) BETWEEN customer_windows.lookahead_start
-   AND customer_windows.lookahead_stop)
-GROUP BY
-  1,2,3,4,5
-)
-
-SELECT
-  target.*,
+  Target.*,
   CASE
-    WHEN ABS(MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(target.customer_id, target.window_date))), 100)) BETWEEN 0 AND 15 THEN 'TEST'
-    WHEN ABS(MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(target.customer_id, target.window_date))), 100)) BETWEEN 15 AND 30 THEN 'VALIDATE'
-    WHEN ABS(MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(target.customer_id, target.window_date))), 100)) BETWEEN 30 AND 100 THEN 'TRAIN'
-  END as predefined_split_column,
-  IFNULL(DATE_DIFF(target.window_date, MAX(DATE(data.{date_column})), DAY),
-         {days_look_back}) AS days_since_last_purchase,
+    WHEN
+      ABS(
+        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id, Target.window_date))), 100))
+      BETWEEN 0
+      AND 15
+      THEN 'TEST'
+    WHEN
+      ABS(
+        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id, Target.window_date))), 100))
+      BETWEEN 15
+      AND 30
+      THEN 'VALIDATE'
+    WHEN
+      ABS(
+        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id, Target.window_date))), 100))
+      BETWEEN 30
+      AND 100
+      THEN 'TRAIN'
+    END AS predefined_split_column,
+  IFNULL(
+    DATE_DIFF(Target.window_date, MAX(DATE(TX_DATA.{date_column})), DAY),
+    {days_look_back}) AS days_since_last_purchase,
+  COUNT(*) AS count_transactions,
+  DATE_DIFF(MIN(DATE(TX_DATA.{date_column})), Target.lookback_start, DAY) AS days_since_first_transaction,
   {numerical_features_sql},
-  {non_numerical_features_sql}
+  {non_numerical_features_sql},
 FROM
-  target
+  Target
 JOIN
-  {project_id}.{dataset_id}.{table_name} data
-ON
-  (data.{customer_id_column} = target.customer_id AND
-   DATE(data.{date_column}) BETWEEN target.lookback_start AND DATE(target.window_date))
+  {project_id}.{dataset_id}.{table_name} AS TX_DATA
+  ON (
+    TX_DATA.{customer_id_column} = Target.customer_id
+    AND DATE(TX_DATA.{date_column}) BETWEEN Target.lookback_start AND DATE(Target.window_date))
 GROUP BY
-  1,2,3,4,5,6,7;
+  1, 2, 3, 4, 5, 6, 7;

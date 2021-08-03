@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Main module to train and predict a CrystalValue LTV model.
 
 The CrystalValue LTV model uses Vertex AI AutoML Tables.
@@ -57,9 +56,9 @@ pipeline.predict(
 
 """
 
+import dataclasses
 from typing import FrozenSet, Optional
 
-import dataclasses
 from google.cloud import bigquery
 import pandas as pd
 
@@ -82,12 +81,12 @@ class CrystalValue:
     numerical_features: The names of numerical features to be processed.
     non_numerical_features: The names of non-numerical features to be processed.
       These should be either categorical or text features.
-    location: The Bigquery and Vertex AI location for processing
-      (e.g. 'europe-west4' or 'us-east-4')
+    location: The Bigquery and Vertex AI location for processing (e.g.
+      'europe-west4' or 'us-east-4')
     window_date: The date to create 'customer-windows'. CrystalValue will train
       a model using data from 1 year before this date to predict value from 1
-      year after this date. If `None` (default), then CrystalValue will set
-      the window_date to 365 days ago.
+      year after this date. If `None` (default), then CrystalValue will set the
+      window_date to 365 days ago.
   """
   bigquery_client: bigquery.Client
   dataset_id: str
@@ -100,12 +99,11 @@ class CrystalValue:
   location: str = 'europe-west4'
   window_date: Optional[str] = None
 
-  def create_synthetic_data(
-      self,
-      table_name: str = 'synthetic_data',
-      row_count: int = 100000,
-      start_date: str = '2018-01-01',
-      end_date: str = '2021-01-01') -> pd.DataFrame:
+  def create_synthetic_data(self,
+                            table_name: str = 'synthetic_data',
+                            row_count: int = 100000,
+                            start_date: str = '2018-01-01',
+                            end_date: str = '2021-01-01') -> pd.DataFrame:
     """Creates a synthetic transaction dataset and loads to Bigquery.
 
     The transaction dataset contains customer ids which can make multiple
@@ -131,14 +129,13 @@ class CrystalValue:
         load_table_to_bigquery=True,
         location=self.location)
 
-  def feature_engineer(
-      self,
-      transaction_table_name: str,
-      query_template_train_file: Optional[str] = None,
-      query_template_train_sql: Optional[str] = None,
-      write_executed_query_file: Optional[str] = None,
-      days_look_back: int = 365,
-      days_look_ahead: int = 365) -> pd.DataFrame:
+  def feature_engineer(self,
+                       transaction_table_name: str,
+                       query_template_train_file: Optional[str] = None,
+                       query_template_train_sql: Optional[str] = None,
+                       write_executed_query_file: Optional[str] = None,
+                       days_look_back: int = 365,
+                       days_look_ahead: int = 365) -> pd.DataFrame:
     """Builds training data from transaction data through BigQuery.
 
     This function takes a transaction dataset (a BigQuery table that includes
@@ -200,8 +197,8 @@ class CrystalValue:
     Args:
       dataset_display_name: The display name of the Dataset to create.
       model_display_name: The display name of the Model to create.
-      predefined_split_column_name: A name of one of the Dataset's columns.
-        The values of the column must be one of {``training``, ``validation``,
+      predefined_split_column_name: A name of one of the Dataset's columns. The
+        values of the column must be one of {``training``, ``validation``,
         ``test``}, and it defines to which set the given piece of data is
         assigned. If for a piece of data the key is not present or has an
         invalid value, that piece is ignored by the pipeline.
@@ -242,10 +239,10 @@ class CrystalValue:
 
     Args:
       input_table_name: The table containing features to predict with.
-      model_resource_name: The resource name of the Vertex AI model
-        e.g. '553728129496821'
-      model_name: The name of the Vertex AI trained model
-        e.g. 'crystalvalue_model'.
+      model_resource_name: The resource name of the Vertex AI model e.g.
+        '553728129496821'
+      model_name: The name of the Vertex AI trained model e.g.
+        'crystalvalue_model'.
       destination_table: The table to either create (if it doesn't exist) or
         append predictions to within your dataset.
     """

@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Module for feature engineering via BigQuery for crystal value pipeline."""
 
 import datetime
@@ -23,16 +22,13 @@ import pandas as pd
 
 logging.getLogger().setLevel(logging.INFO)
 
-
 # BigQuery aggregate functions to apply to numerical columns.
 # https://cloud.google.com/bigquery/docs/reference/standard-sql/functions-and-operators#aggregate_functions
-_NUMERICAL_TRANSFORMATIONS = frozenset(['AVG', 'MAX', 'MIN'])
+_NUMERICAL_TRANSFORMATIONS = frozenset(['AVG', 'MAX', 'MIN', 'SUM'])
 
 
 def _detect_feature_types(
-    bigquery_client: bigquery.Client,
-    dataset_id: str,
-    table_name: str,
+    bigquery_client: bigquery.Client, dataset_id: str, table_name: str,
     ignore_columns: List[str]) -> Tuple[List[str], List[str]]:
   """Detects the features types using the schema in BigQuery.
 
@@ -56,7 +52,7 @@ def _detect_feature_types(
 
   for feature in table.schema:
     if feature.name not in ignore_columns:
-      if feature.field_type in ['INTEGER', 'FLOAT']:
+      if feature.field_type in ['INTEGER', 'FLOAT', 'NUMERIC']:
         numerical_features.append(feature.name)
       else:
         non_numerical_features.append(feature.name)
@@ -76,12 +72,8 @@ def _write_file(query: str, file_name: str) -> None:
   logging.info('Wrote generated query to %r', file_name)
 
 
-def _run_query(
-    bigquery_client: bigquery.Client,
-    query: str,
-    dataset_id: str,
-    destination_table_name: str,
-    location: str) -> pd.DataFrame:
+def _run_query(bigquery_client: bigquery.Client, query: str, dataset_id: str,
+               destination_table_name: str, location: str) -> pd.DataFrame:
   """Runs a query in BigQuery and returns the result.
 
   Args:
@@ -99,8 +91,7 @@ def _run_query(
       destination=table_id,
       write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
   data = bigquery_client.query(
-      query, job_config=job_config,
-      location=location).result().to_dataframe()
+      query, job_config=job_config, location=location).result().to_dataframe()
   logging.info('Created table %r', table_id)
   return data
 
@@ -162,7 +153,9 @@ def build_train_data(
   """
   if not numerical_features and not non_numerical_features:
     numerical_features, non_numerical_features = _detect_feature_types(
-        bigquery_client, dataset_id, transaction_table_name,
+        bigquery_client,
+        dataset_id,
+        transaction_table_name,
         ignore_columns=[customer_id_column, date_column])
     logging.info('Detected Numerical Features:')
     for feature in numerical_features:
@@ -174,18 +167,15 @@ def build_train_data(
   numerical_features_sql = []
   for feature in numerical_features:
     for transformation in numerical_transformations:
-      numerical_features_sql.append(
-          (f'{transformation}({feature}) as '
-           f'{transformation.lower()}_{feature}')
-          )
+      numerical_features_sql.append((f'{transformation}({feature}) as '
+                                     f'{transformation.lower()}_{feature}'))
   numerical_features_sql = ', \n'.join(numerical_features_sql)
 
   non_numerical_features_sql = []
   for feature in non_numerical_features:
     non_numerical_features_sql.append(
         (f'TRIM(STRING_AGG(DISTINCT {feature}, " " '
-         f'order by {feature})) AS {feature} \n')
-        )
+         f'ORDER BY {feature})) AS {feature} \n'))
   non_numerical_features_sql = ', \n'.join(non_numerical_features_sql)
 
   if not window_date:
@@ -214,5 +204,6 @@ def build_train_data(
 
   if write_executed_query_file:
     _write_file(substituted_query, write_executed_query_file)
+
   return _run_query(bigquery_client, substituted_query, dataset_id,
                     destination_table_name, location)
