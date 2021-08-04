@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for crystalvalue.feature_engineering."""
 
 import unittest
@@ -27,8 +26,7 @@ class FeatureEngineeringTest(unittest.TestCase):
   def setUp(self):
     super().setUp()
     self.addCleanup(mock.patch.stopall)
-    self.mock_client = mock.patch.object(
-        bigquery, 'Client', autospec=True)
+    self.mock_client = mock.patch.object(bigquery, 'Client', autospec=True)
     self.mock_client.project = 'test_project'
     self.mock_read = mock.patch.object(
         feature_engineering, '_read_file', autospec=True).start()
@@ -40,7 +38,9 @@ class FeatureEngineeringTest(unittest.TestCase):
     self.query_template_train_file = 'template_query.txt'
     self.write_executed_query_file = 'generated_query.txt'
     self.numerical_features = frozenset(['numerical_column'])
-    self.non_numerical_features = frozenset(['categorical_columm'])
+    self.string_or_categorical_features = frozenset(['categorical_column'])
+    self.bool_features = frozenset(['bool_column'])
+    self.array_features = frozenset(['array_column'])
 
   @mock.patch.object(feature_engineering, '_run_query', autospec=True)
   def test_client_is_called_once(self, mock_run_query):
@@ -51,11 +51,28 @@ class FeatureEngineeringTest(unittest.TestCase):
         transaction_table_name=self.transaction_table_name,
         destination_table_name=self.destination_table_name,
         numerical_features=self.numerical_features,
-        non_numerical_features=self.non_numerical_features,
+        string_or_categorical_features=self.string_or_categorical_features,
         query_template_train_file=self.query_template_train_file,
         write_executed_query_file=self.write_executed_query_file)
 
     mock_run_query.assert_called_once()
+
+  @mock.patch.object(feature_engineering, '_run_query', autospec=True)
+  def test_client_is_called_once_with_bool_array_features(self, mock_run_query):
+    feature_engineering.build_train_data(
+        bigquery_client=self.mock_client,
+        dataset_id=self.dataset_id,
+        transaction_table_name=self.transaction_table_name,
+        destination_table_name=self.destination_table_name,
+        numerical_features=self.numerical_features,
+        string_or_categorical_features=self.string_or_categorical_features,
+        bool_features=self.bool_features,
+        array_features=self.array_features,
+        query_template_train_file=self.query_template_train_file,
+        write_executed_query_file=self.write_executed_query_file)
+
+    mock_run_query.assert_called_once()
+
 
 if __name__ == '__main__':
   unittest.main()

@@ -29,7 +29,8 @@ _NUMERICAL_TRANSFORMATIONS = frozenset(['AVG', 'MAX', 'MIN', 'SUM'])
 
 def _detect_feature_types(
     bigquery_client: bigquery.Client, dataset_id: str, table_name: str,
-    ignore_columns: List[str]) -> Tuple[List[str], List[str]]:
+    ignore_columns: List[str]
+) -> Tuple[List[str], List[str], List[str], List[str]]:
   """Detects the features types using the schema in BigQuery.
 
   Args:
@@ -39,11 +40,13 @@ def _detect_feature_types(
     ignore_columns: The column names to ignore to create features.
 
   Returns:
-    Tuple of a list of numerical features and a list of non numerical features.
+    Tuple of a list of numerical features, non numerical, bool, array features.
   """
 
   numerical_features = []
-  non_numerical_features = []
+  string_or_categorical_features = []
+  bool_features = []
+  array_features = []
 
   dataset_reference = bigquery_client.dataset(
       dataset_id, project=bigquery_client.project)
@@ -52,11 +55,15 @@ def _detect_feature_types(
 
   for feature in table.schema:
     if feature.name not in ignore_columns:
-      if feature.field_type in ['INTEGER', 'FLOAT', 'NUMERIC']:
+      if feature.mode == 'REPEATED':
+        array_features.append(feature.name)
+      elif feature.field_type == 'BOOLEAN':
+        bool_features.append(feature.name)
+      elif feature.field_type in ['INTEGER', 'FLOAT', 'NUMERIC']:
         numerical_features.append(feature.name)
       else:
-        non_numerical_features.append(feature.name)
-  return numerical_features, non_numerical_features
+        string_or_categorical_features.append(feature.name)
+  return numerical_features, string_or_categorical_features, bool_features, array_features
 
 
 def _read_file(file_name: str) -> str:
@@ -104,8 +111,10 @@ def build_train_data(
     query_template_train_file: Optional[str] = None,
     query_template_train_sql: Optional[str] = None,
     write_executed_query_file: Optional[str] = None,
-    numerical_features: Optional[FrozenSet[str]] = None,
-    non_numerical_features: Optional[FrozenSet[str]] = None,
+    numerical_features: Optional[FrozenSet[str]] = frozenset([]),
+    string_or_categorical_features: Optional[FrozenSet[str]] = frozenset([]),
+    bool_features: Optional[FrozenSet[str]] = frozenset([]),
+    array_features: Optional[FrozenSet[str]] = frozenset([]),
     days_look_back: int = 365,
     days_look_ahead: int = 365,
     customer_id_column: str = 'customer_id',
@@ -121,9 +130,9 @@ def build_train_data(
   that can be ingested by AutoML. It will first create an SQL query (and
   write it to the file path `write_executed_query_file` for debugging purposes)
   and then execute it. Data types will be automatically detected from the
-  BigQuery schema
-  if `numerical_features` and `non_numerical_features` are not provided. Columns
-  should not be nested.
+  BigQuery schema if `numerical_features` and `string_or_categorical_features`
+  are not provided. Columns can be REPEATED, however note that RECORD type
+  (i.e. SQL STRUCT type) is currently not supported.
 
   Args:
     bigquery_client: BigQuery client.
@@ -136,8 +145,10 @@ def build_train_data(
       query_template_train_file is not provided.
     write_executed_query_file: File path to write the generated SQL query.
     numerical_features: The names of numerical features to be processed.
-    non_numerical_features: The names of non-numerical features to be processed.
-      These should be either categorical or text features.
+    string_or_categorical_features: The names of non-numerical features to be
+      processed. These should be either categorical or text features.
+    bool_features: The names of bool features to be processed.
+    array_features: The names of array features to be processed.
     days_look_back: The number of days to look back to create features.
     days_look_ahead: The number of days to look ahead to predict value.
     customer_id_column: The name of the customer id column.
@@ -151,8 +162,9 @@ def build_train_data(
   Returns:
     Training data ready for machine learning.
   """
-  if not numerical_features and not non_numerical_features:
-    numerical_features, non_numerical_features = _detect_feature_types(
+  # TODO(): Refactor _detect_feature_types
+  if not numerical_features and not string_or_categorical_features:
+    numerical_features, string_or_categorical_features, bool_features, array_features = _detect_feature_types(
         bigquery_client,
         dataset_id,
         transaction_table_name,
@@ -161,7 +173,13 @@ def build_train_data(
     for feature in numerical_features:
       logging.info({feature})
     logging.info('Detected Non-Numerical Features:')
-    for feature in non_numerical_features:
+    for feature in string_or_categorical_features:
+      logging.info({feature})
+    logging.info('Detected Bool Features:')
+    for feature in bool_features:
+      logging.info({feature})
+    logging.info('Detected Array Features:')
+    for feature in array_features:
       logging.info({feature})
 
   numerical_features_sql = []
@@ -171,12 +189,28 @@ def build_train_data(
                                      f'{transformation.lower()}_{feature}'))
   numerical_features_sql = ', \n'.join(numerical_features_sql)
 
-  non_numerical_features_sql = []
-  for feature in non_numerical_features:
-    non_numerical_features_sql.append(
+  string_or_categorical_features_sql = []
+  for feature in string_or_categorical_features:
+    string_or_categorical_features_sql.append(
         (f'TRIM(STRING_AGG(DISTINCT {feature}, " " '
          f'ORDER BY {feature})) AS {feature} \n'))
-  non_numerical_features_sql = ', \n'.join(non_numerical_features_sql)
+  string_or_categorical_features_sql = ', \n'.join(
+      string_or_categorical_features_sql)
+
+  bool_features_sql = []
+  for feature in bool_features:
+    bool_features_sql.append((f'COUNTIF({feature}) AS {feature}'))
+    bool_features_sql.append((f'COUNTIF(NOT {feature}) AS not_{feature}'))
+  bool_features_sql = ', \n'.join(bool_features_sql)
+
+  array_agg_features_sql = []
+  dedup_sql = []
+  for feature in array_features:
+    array_agg_features_sql.append((f'ARRAY_CONCAT_AGG({feature}) AS {feature}'))
+    dedup_sql.append(f'Dedup({feature}) AS {feature}')
+  array_features_sql = ', \n'.join(array_features)
+  array_agg_features_sql = ', \n'.join(array_agg_features_sql)
+  array_dedup_features_sql = ', \n'.join(dedup_sql)
 
   if not window_date:
     window_date = (datetime.date.today() -
@@ -189,7 +223,13 @@ def build_train_data(
   else:
     raise ValueError('One of `query_template_train` or `query_template_train`'
                      'must be provided')
-  substituted_query = f'{query_template_train}'.format(
+
+  features_sql = ',\n'.join([
+      numerical_features_sql, string_or_categorical_features_sql,
+      bool_features_sql, array_agg_features_sql
+  ])
+
+  substituted_query = query_template_train.format(
       project_id=bigquery_client.project,
       dataset_id=dataset_id,
       table_name=transaction_table_name,
@@ -199,8 +239,9 @@ def build_train_data(
       value_column=value_column,
       days_look_back=days_look_back,
       days_look_ahead=days_look_ahead,
-      numerical_features_sql=numerical_features_sql,
-      non_numerical_features_sql=non_numerical_features_sql)
+      features_sql=features_sql,
+      array_features_sql=array_features_sql,
+      array_dedup_features_sql=array_dedup_features_sql)
 
   if write_executed_query_file:
     _write_file(substituted_query, write_executed_query_file)

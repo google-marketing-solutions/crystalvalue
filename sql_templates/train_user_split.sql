@@ -23,9 +23,14 @@
 -- @param customer_id_column STRING The column containing the customer ID.
 -- @param date_column STRING The column containing the transaction date.
 -- @param value_column STRING The column containing the value column.
--- @param numerical_features STRING The SQL for numerical features and transformations.
--- @param non_numerical_features STRING The SQL non-numerical features and transformations.
+-- @param features_sql STRING The SQL for the features and transformations.
+-- @param array_features STRING The SQL array features.
+-- @param array_dedup_features STRING The SQL array features after removing duplicate values.
 
+CREATE TEMP FUNCTION Dedup(val ANY TYPE)
+AS (
+  (SELECT ARRAY_AGG(t.v) FROM (SELECT DISTINCT * FROM UNNEST(val) v) t)
+);
 
 WITH
   CustomerWindows AS (
@@ -52,9 +57,10 @@ WITH
           AND CustomerWindows.lookahead_stop)
     GROUP BY
       1, 2, 3, 4, 5
-  )
-SELECT
-  Target.*,
+  ),
+  Dataset AS (
+    SELECT
+        Target.*,
   CASE
     WHEN
       ABS(
@@ -91,3 +97,8 @@ JOIN
     AND DATE(TX_DATA.{date_column}) BETWEEN Target.lookback_start AND DATE(Target.window_date))
 GROUP BY
   1, 2, 3, 4, 5, 6, 7;
+  )
+SELECT
+  * EXCEPT ({array_features_sql}),
+  {array_dedup_features_sql}
+FROM Dataset
