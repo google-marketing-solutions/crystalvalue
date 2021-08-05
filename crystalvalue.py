@@ -39,9 +39,10 @@ data = pipeline.create_synthetic_data(table_name='synthetic_data')
 # CrystalValue automatically detects data types and applies transformations.
 # CrystalValue by default will predict 1 year ahead (configurable) using data
 # accumulated from 1 year before (configurable).
-training_data = pipeline.feature_engineer(
+training_data_query = pipeline.feature_engineer(
     transaction_table_name='synthetic_data',
     query_template_train_file='./sql_templates/train_user_split.sql')
+training_data = pipeline.run_query(query_sql=training_data_query)
 
 # Creates AI Platform Dataset and trains AutoML model.
 pipeline.train()
@@ -135,20 +136,19 @@ class CrystalValue:
                        query_template_train_sql: Optional[str] = None,
                        write_executed_query_file: Optional[str] = None,
                        days_look_back: int = 365,
-                       days_look_ahead: int = 365) -> pd.DataFrame:
+                       days_look_ahead: int = 365) -> Optional[pd.DataFrame]:
     """Builds training data from transaction data through BigQuery.
 
     This function takes a transaction dataset (a BigQuery table that includes
-    information about purchases) and creates a machine learning-ready dataset
-    that can be ingested by AutoML. It will first create an SQL query (and
-    write it to the file path `write_executed_query_file` for debugging
-    purposes) and then execute it. Data types will be automatically detected
-    from the BigQuery schema if `numerical_features` and
-    `non_numerical_features` are not provided. Columns should not be nested.
-    By default, the model will use features from between 2 and 1 years ago to
-    predict value from between 1 year ago and now. This is configurable using
-    the `window_date` class attribute and the days_look_back and days_look_ahead
-    method arguments.
+    information about purchases) and creates a script to generate a machine
+    learning-ready dataset that can be ingested by AutoML.The SQL query can be
+    written to the file path `write_executed_query_file` for manual
+    modifications. Data types will be automatically detected from the BigQuery
+    schema if `numerical_features` and `string_or_categorical_features` are not
+    provided. By default, the model will use features from between 2 and 1 years
+    ago to predict value from between 1 year ago and now. This is configurable
+    using the `window_date` class attribute and the days_look_back and
+    days_look_ahead method arguments.
 
     Args:
       transaction_table_name: The Bigquery table name with transactions.
@@ -161,9 +161,9 @@ class CrystalValue:
       days_look_ahead: The number of days to look ahead to predict value.
 
     Returns:
-      Training data ready for machine learning.
+      The SQL script to generate training data ready for machine learning.
     """
-    return feature_engineering.build_train_data(
+    return feature_engineering.build_query_function(
         bigquery_client=self.bigquery_client,
         dataset_id=self.dataset_id,
         transaction_table_name=transaction_table_name,
@@ -180,6 +180,29 @@ class CrystalValue:
         value_column=self.value_column,
         location=self.location,
         window_date=self.window_date)
+
+  def run_query(self, query_sql: Optional[str],
+                query_file: Optional[str]) -> pd.DataFrame:
+    """Builds training data from transaction data through BigQuery.
+
+    This function takes a SQL query and then executes it.
+
+    Args:
+      query_sql: The SQL query to execute. Either query or query_file MUST be
+        specified.
+      query_file: Path to the SQL query to execute. Either query or query_file
+        MUST be specified.
+
+    Returns:
+      Training data ready for machine learning.
+    """
+    return feature_engineering.run_query(
+        bigquery_client=self.bigquery_client,
+        query_sql=query_sql,
+        query_file=query_file,
+        dataset_id=self.dataset_id,
+        destination_table_name=self.training_table_name,
+        location=self.location)
 
   def train(self,
             dataset_display_name: str = 'crystalvalue_dataset',

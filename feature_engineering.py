@@ -79,35 +79,10 @@ def _write_file(query: str, file_name: str) -> None:
   logging.info('Wrote generated query to %r', file_name)
 
 
-def _run_query(bigquery_client: bigquery.Client, query: str, dataset_id: str,
-               destination_table_name: str, location: str) -> pd.DataFrame:
-  """Runs a query in BigQuery and returns the result.
-
-  Args:
-    bigquery_client: BigQuery client.
-    query: The SQL query to execute.
-    dataset_id: The Bigquery dataset_id.
-    destination_table_name: The table to write to.
-    location: The location to write the table in BigQuery.
-
-  Returns:
-    The result of the executed query as a Pandas DataFrame.
-  """
-  table_id = f'{bigquery_client.project}.{dataset_id}.{destination_table_name}'
-  job_config = bigquery.QueryJobConfig(
-      destination=table_id,
-      write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
-  data = bigquery_client.query(
-      query, job_config=job_config, location=location).result().to_dataframe()
-  logging.info('Created table %r', table_id)
-  return data
-
-
-def build_train_data(
+def build_query_function(
     bigquery_client: bigquery.Client,
     dataset_id: str,
     transaction_table_name: str,
-    destination_table_name: str = 'training_data',
     query_template_train_file: Optional[str] = None,
     query_template_train_sql: Optional[str] = None,
     write_executed_query_file: Optional[str] = None,
@@ -120,25 +95,23 @@ def build_train_data(
     customer_id_column: str = 'customer_id',
     date_column: str = 'date',
     value_column: str = 'value',
-    location: str = 'europe-west4',
     numerical_transformations: FrozenSet[str] = _NUMERICAL_TRANSFORMATIONS,
-    window_date: Optional[str] = None) -> pd.DataFrame:
+    window_date: Optional[str] = None) -> Optional[pd.DataFrame]:
   """Builds training data from transaction data through BigQuery.
 
   This function takes a transaction dataset (a BigQuery table that includes
-  information about purchases) and creates a machine learning-ready dataset
-  that can be ingested by AutoML. It will first create an SQL query (and
-  write it to the file path `write_executed_query_file` for debugging purposes)
-  and then execute it. Data types will be automatically detected from the
-  BigQuery schema if `numerical_features` and `string_or_categorical_features`
-  are not provided. Columns can be REPEATED, however note that RECORD type
-  (i.e. SQL STRUCT type) is currently not supported.
+  information about purchases) and creates a SQL query to generate a machine
+  learning-ready dataset that can be ingested by AutoML. The SQL query can be
+  written to the file path `write_executed_query_file` for manual modifications.
+  Data types will be automatically detected from the BigQuery schema if
+  `numerical_features` and `string_or_categorical_features` are not provided.
+  Columns can be REPEATED, however note that RECORD type (i.e. SQL STRUCT type)
+  is currently not supported.
 
   Args:
     bigquery_client: BigQuery client.
     dataset_id: The Bigquery dataset_id.
     transaction_table_name: The Bigquery table name with transactions.
-    destination_table_name: The Bigquery table name to write to.
     query_template_train_file: File path with the template SQL query. Must be
       provided if query_template_train_sql is not provided.
     query_template_train_sql: SQL with the template query. Must be provided if
@@ -154,13 +127,12 @@ def build_train_data(
     customer_id_column: The name of the customer id column.
     date_column: The name of the date column.
     value_column: The name of the value column.
-    location: The location to write the table in BigQuery.
     numerical_transformations: The types of transformations for numerical
       features.
     window_date: The date to create 'customer-windows'
 
   Returns:
-    Training data ready for machine learning.
+    The SQL script to generate training data ready for machine learning.
   """
   # TODO(): Refactor _detect_feature_types
   if not numerical_features and not string_or_categorical_features:
@@ -193,7 +165,7 @@ def build_train_data(
   for feature in string_or_categorical_features:
     string_or_categorical_features_sql.append(
         (f'TRIM(STRING_AGG(DISTINCT {feature}, " " '
-         f'ORDER BY {feature})) AS {feature} \n'))
+         f'ORDER BY {feature})) AS {feature}'))
   string_or_categorical_features_sql = ', \n'.join(
       string_or_categorical_features_sql)
 
@@ -221,10 +193,11 @@ def build_train_data(
   elif query_template_train_sql:
     query_template_train = query_template_train_sql
   else:
-    raise ValueError('One of `query_template_train` or `query_template_train`'
-                     'must be provided')
+    raise ValueError(
+        'One of `query_template_train_sql` or `query_template_train_file`'
+        'must be provided')
 
-  features_sql = ',\n'.join([
+  features_sql = ', \n'.join([
       numerical_features_sql, string_or_categorical_features_sql,
       bool_features_sql, array_agg_features_sql
   ])
@@ -245,6 +218,47 @@ def build_train_data(
 
   if write_executed_query_file:
     _write_file(substituted_query, write_executed_query_file)
+    logging.info('Query successfully written to: "%s"',
+                 write_executed_query_file)
 
-  return _run_query(bigquery_client, substituted_query, dataset_id,
-                    destination_table_name, location)
+  return substituted_query
+
+
+def run_query(
+    bigquery_client: bigquery.Client,
+    query_sql: Optional[str],
+    query_file: Optional[str],
+    dataset_id: str,
+    destination_table_name: str = 'training_data',
+    location: str = 'europe-west4',
+) -> pd.DataFrame:
+  """Runs a query in BigQuery and returns the result.
+
+  Args:
+    bigquery_client: BigQuery client.
+    query_sql: The SQL query to execute. Either query or query_file MUST be
+      specified.
+    query_file: Path to the SQL query to execute. Either query or query_file
+      MUST be specified.
+    dataset_id: The Bigquery dataset_id.
+    destination_table_name: The table to write to.
+    location: The location to write the table in BigQuery.
+
+  Returns:
+    The result of the executed query as a Pandas DataFrame.
+  """
+  if query_file:
+    query = _read_file(query_file)
+  elif query_sql:
+    query = query_sql
+  else:
+    raise ValueError('One of `query` or `query_file` must be provided')
+
+  table_id = f'{bigquery_client.project}.{dataset_id}.{destination_table_name}'
+  job_config = bigquery.QueryJobConfig(
+      destination=table_id,
+      write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
+  data = bigquery_client.query(
+      query, job_config=job_config, location=location).result().to_dataframe()
+  logging.info('Created table %r', table_id)
+  return data
