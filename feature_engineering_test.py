@@ -33,56 +33,27 @@ class FeatureEngineeringTest(unittest.TestCase):
     self.mock_write = mock.patch.object(
         feature_engineering, '_write_file', autospec=True).start()
     self.dataset_id = 'test_dataset_id'
+    self.read_query_file = 'query.txt'
     self.transaction_table_name = 'test_transaction_table_name'
     self.destination_table_name = 'test_destination_table_name'
-    self.query_template_train_sql = 'SELECT {features_sql} FROM Dataset'
-    self.write_executed_query_file = 'generated_query.txt'
-    self.numerical_features = frozenset(['numerical_column'])
-    self.string_or_categorical_features = frozenset(['categorical_column'])
-    self.bool_features = frozenset(['bool_column'])
-    self.array_features = frozenset(['array_column'])
+    self.features = {'numerical': 'numerical_column'}
 
-  def test_build_query_function_substitutions(self):
-    query = feature_engineering.build_query_function(
+  def test_build_train_query_reads_query(self):
+
+    feature_engineering.build_train_query(
         bigquery_client=self.mock_client,
-        transaction_table_name=self.transaction_table_name,
-        numerical_features=self.numerical_features,
-        string_or_categorical_features=self.string_or_categorical_features,
         dataset_id=self.dataset_id,
-        query_template_train_sql=self.query_template_train_sql,
-        write_executed_query_file=self.write_executed_query_file)
-
-    self.assertIn('MAX(numerical_column) as max_numerical_column', query)
-    self.assertIn('SUM(numerical_column) as sum_numerical_column', query)
-    self.assertIn('MIN(numerical_column) as min_numerical_column', query)
-    self.assertIn('AVG(numerical_column) as avg_numerical_column', query)
-    self.assertIn(
-        'TRIM(STRING_AGG(DISTINCT categorical_column, " " ORDER BY categorical_column)) AS categorical_column',
-        query)
-
-  def test_build_query_function_array_bool_substitutions(self):
-    query = feature_engineering.build_query_function(
-        bigquery_client=self.mock_client,
         transaction_table_name=self.transaction_table_name,
-        numerical_features=self.numerical_features,
-        string_or_categorical_features=self.string_or_categorical_features,
-        bool_features=self.bool_features,
-        array_features=self.array_features,
-        dataset_id=self.dataset_id,
-        query_template_train_sql=self.query_template_train_sql,
-        write_executed_query_file=self.write_executed_query_file)
+        features=self.features)
 
-    self.assertIn('COUNTIF(bool_column) AS bool_column', query)
-    self.assertIn('COUNTIF(NOT bool_column) AS not_bool_column', query)
-    self.assertIn('ARRAY_CONCAT_AGG(array_column) AS array_column', query)
+    self.mock_read.assert_called_once()
 
-  def test_run_query_reads_file(self):
+  def test_run_query_writes_file(self):
 
     feature_engineering.run_query(
         bigquery_client=self.mock_client,
         dataset_id=self.dataset_id,
-        query_sql=self.query_template_train_sql,
-        query_file=self.write_executed_query_file,
+        query_file=self.read_query_file,
         destination_table_name=self.destination_table_name)
 
     self.mock_read.assert_called_once()

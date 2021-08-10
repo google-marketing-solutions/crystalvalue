@@ -18,28 +18,21 @@
 -- values `TEST` for 15% of rows, `VALIDATE` for 15% of rows and `TRAIN` for 70% of rows.
 
 -- @param window_date STRING The date for the window date
--- @param days_look_back INT The number of days to look back to create features.
--- @param days_look_ahead INT The number of days to look ahead to predict LTV.
+-- @param days_lookback INT The number of days to look back to create features.
+-- @param days_lookahead INT The number of days to look ahead to predict LTV.
 -- @param customer_id_column STRING The column containing the customer ID.
 -- @param date_column STRING The column containing the transaction date.
 -- @param value_column STRING The column containing the value column.
 -- @param features_sql STRING The SQL for the features and transformations.
--- @param array_features STRING The SQL array features.
--- @param array_dedup_features STRING The SQL array features after removing duplicate values.
-
-CREATE TEMP FUNCTION Dedup(val ANY TYPE)
-AS (
-  (SELECT ARRAY_AGG(t.v) FROM (SELECT DISTINCT * FROM UNNEST(val) v) t)
-);
 
 WITH
   CustomerWindows AS (
     SELECT DISTINCT
       TX_DATA.{customer_id_column} AS customer_id,
       DATE("{window_date}") AS window_date,
-      DATE_SUB(DATE("{window_date}"), INTERVAL {days_look_back} day) AS lookback_start,
+      DATE_SUB(DATE("{window_date}"), INTERVAL {days_lookback} day) AS lookback_start,
       DATE_ADD(DATE("{window_date}"), INTERVAL 1 day) AS lookahead_start,
-      DATE_ADD(DATE("{window_date}"), INTERVAL {days_look_ahead} day) AS lookahead_stop
+      DATE_ADD(DATE("{window_date}"), INTERVAL {days_lookahead} day) AS lookahead_stop
     FROM {project_id}.{dataset_id}.{table_name} AS TX_DATA
   ),
   Target AS (
@@ -57,10 +50,10 @@ WITH
           AND CustomerWindows.lookahead_stop)
     GROUP BY
       1, 2, 3, 4, 5
-  ),
-  Dataset AS (
-    SELECT
-        Target.*,
+)
+
+SELECT
+Target.*,
   CASE
     WHEN
       ABS(
@@ -83,11 +76,12 @@ WITH
     END AS predefined_split_column,
   IFNULL(
     DATE_DIFF(Target.window_date, MAX(DATE(TX_DATA.{date_column})), DAY),
-    {days_look_back}) AS days_since_last_purchase,
+    {days_lookback}) AS days_since_last_transaction,
+  IFNULL(
+    DATE_DIFF(Target.window_date, MIN(DATE(TX_DATA.{date_column})), DAY),
+    {days_lookback}) AS days_since_first_transaction,
   COUNT(*) AS count_transactions,
-  DATE_DIFF(MIN(DATE(TX_DATA.{date_column})), Target.lookback_start, DAY) AS days_since_first_transaction,
-  {numerical_features_sql},
-  {non_numerical_features_sql},
+  {features_sql}
 FROM
   Target
 JOIN
@@ -97,8 +91,3 @@ JOIN
     AND DATE(TX_DATA.{date_column}) BETWEEN Target.lookback_start AND DATE(Target.window_date))
 GROUP BY
   1, 2, 3, 4, 5, 6, 7;
-  )
-SELECT
-  * EXCEPT ({array_features_sql}),
-  {array_dedup_features_sql}
-FROM Dataset

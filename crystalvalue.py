@@ -27,9 +27,10 @@ import crystalvalue
 bigquery_client = bigquery.Client()
 
 # Initiate the CrystalValue class.
+# The Google Cloud Platform project will be identified using Bigquery client.
 pipeline = crystalvalue.CrystalValue(
     bigquery_client=bigquery_client,
-    dataset_id='ltv_dataset')
+    dataset_id='an_existing_dataset')
 
 # (Optional) If you are just testing out CrystalValue, use this method to
 # create a synthetic transaction dataset and load it to BigQuery.
@@ -37,12 +38,10 @@ data = pipeline.create_synthetic_data(table_name='synthetic_data')
 
 # Perform feature engineering using BigQuery.
 # CrystalValue automatically detects data types and applies transformations.
-# CrystalValue by default will predict 1 year ahead (configurable) using data
+# CrystalValue by default will predict 1 year ahead using data
 # accumulated from 1 year before (configurable).
 training_data_query = pipeline.feature_engineer(
-    transaction_table_name='synthetic_data',
-    query_template_train_file='./sql_templates/train_user_split.sql')
-training_data = pipeline.run_query(query_sql=training_data_query)
+    transaction_table_name='synthetic_data')
 
 # Creates AI Platform Dataset and trains AutoML model.
 pipeline.train()
@@ -132,11 +131,9 @@ class CrystalValue:
 
   def feature_engineer(self,
                        transaction_table_name: str,
-                       query_template_train_file: Optional[str] = None,
-                       query_template_train_sql: Optional[str] = None,
                        write_executed_query_file: Optional[str] = None,
-                       days_look_back: int = 365,
-                       days_look_ahead: int = 365) -> Optional[pd.DataFrame]:
+                       days_lookback: int = 365,
+                       days_lookahead: int = 365) -> pd.DataFrame:
     """Builds training data from transaction data through BigQuery.
 
     This function takes a transaction dataset (a BigQuery table that includes
@@ -152,46 +149,37 @@ class CrystalValue:
 
     Args:
       transaction_table_name: The Bigquery table name with transactions.
-      query_template_train_file: File path with the template SQL query. Must be
-        provided if query_template_train_sql is not provided.
-      query_template_train_sql: SQL with the template query. Must be provided if
-        query_template_train_file is not provided.
       write_executed_query_file: File path to write the generated SQL query.
-      days_look_back: The number of days to look back to create features.
-      days_look_ahead: The number of days to look ahead to predict value.
+      days_lookback: The number of days to look back to create features.
+      days_lookahead: The number of days to look ahead to predict value.
 
     Returns:
       The SQL script to generate training data ready for machine learning.
     """
-    return feature_engineering.build_query_function(
+    query = feature_engineering.build_train_query(
         bigquery_client=self.bigquery_client,
         dataset_id=self.dataset_id,
         transaction_table_name=transaction_table_name,
-        destination_table_name=self.training_table_name,
-        query_template_train_file=query_template_train_file,
-        query_template_train_sql=query_template_train_sql,
         write_executed_query_file=write_executed_query_file,
-        numerical_features=self.numerical_features,
-        non_numerical_features=self.non_numerical_features,
-        days_look_back=days_look_back,
-        days_look_ahead=days_look_ahead,
+        days_lookback=days_lookback,
+        days_lookahead=days_lookahead,
         customer_id_column=self.customer_id_column,
         date_column=self.date_column,
         value_column=self.value_column,
-        location=self.location,
         window_date=self.window_date)
 
-  def run_query(self, query_sql: Optional[str],
-                query_file: Optional[str]) -> pd.DataFrame:
-    """Builds training data from transaction data through BigQuery.
+    return self.run_query(query_sql=query)
 
-    This function takes a SQL query and then executes it.
+  def run_query(self,
+                query_sql: Optional[str] = None,
+                query_file: Optional[str] = None) -> pd.DataFrame:
+    """Runs a query in Bigquery either using a file or a query string.
+
+    One of query_sql or query_file must be provided.
 
     Args:
-      query_sql: The SQL query to execute. Either query or query_file MUST be
-        specified.
-      query_file: Path to the SQL query to execute. Either query or query_file
-        MUST be specified.
+      query_sql: The SQL query to execute.
+      query_file: Path to the SQL query to execute.
 
     Returns:
       Training data ready for machine learning.
@@ -228,10 +216,10 @@ class CrystalValue:
       target_column: The target to predict.
       optimization_objective: Objective function the Model is to be optimized
         towards. The training task creates a Model that maximizes/minimizes the
-        value of the objective function over the validation set.
-        "minimize-rmse" (default) - Minimize root-mean-squared error (RMSE).
-        "minimize-mae" - Minimize mean-absolute error (MAE).
-        "minimize-rmsle" - Minimize root-mean-squared log error (RMSLE).
+        value of the objective function over the validation set. "minimize-rmse"
+        (default) - Minimize root-mean-squared error (RMSE). "minimize-mae" -
+        Minimize mean-absolute error (MAE). "minimize-rmsle" - Minimize
+        root-mean-squared log error (RMSLE).
       budget_milli_node_hours: The number of node hours to use to train the
         model (times 1000), 1000 milli node hours is 1 mode hour.
     """

@@ -41,12 +41,12 @@ def _load_table_to_bigquery(
   table_id = f'{bigquery_client.project}.{dataset_id}.{table_name}'
   job_config = bigquery.job.LoadJobConfig(
       write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
+  logging.info('Creating table %r in location %r', table_id, location)
   bigquery_client.load_table_from_dataframe(
       dataframe=data,
       destination=table_id,
       job_config=job_config,
       location=location).result()
-  logging.info('Created table %r', table_id)
 
 
 def create_synthetic_data(
@@ -56,7 +56,7 @@ def create_synthetic_data(
     row_count: int = 100000,
     start_date: str = '2018-01-01',
     end_date: str = '2021-01-01',
-    load_table_to_bigquery: bool = False,
+    load_table_to_bigquery: bool = True,
     location: str = 'europe-west4') -> pd.DataFrame:
   """Creates a synthetic transaction dataset with an option to load to Bigquery.
 
@@ -88,6 +88,7 @@ def create_synthetic_data(
       'customer_id': np.random.poisson(row_count / 3, size=row_count),
       'date': date_list[:row_count],
       'numeric_column': np.random.exponential(5, size=row_count),
+      'bool_column': np.random.rand() > 0.5,
       'categorical_column': np.random.poisson(3, size=row_count),
       'text_column': [' '.join(np.random.choice(list(_CUSTOMER_SEARCHES), 3))
                       for i in range(row_count)]
