@@ -65,8 +65,9 @@ pipeline.predict(
 """
 
 import dataclasses
-from typing import FrozenSet, Optional
+from typing import Collection, List, Mapping, Optional
 
+from absl import logging
 from google.cloud import bigquery
 import pandas as pd
 
@@ -86,9 +87,13 @@ class CrystalValue:
     customer_id_column: The name of the customer id column.
     date_column: The name of the date column.
     value_column: The name of the future value column.
-    numerical_features: The names of numerical features to be processed.
-    non_numerical_features: The names of non-numerical features to be processed.
-      These should be either categorical or text features.
+    features_types: A mapping of the feature type to a list of columns of such
+      type. For example:
+      {'numeric': ['transaction_value', 'number_products'],
+      'boolean': ['is_registered_customer'],
+      'string_or_categorical': ['transaction_type', 'payment_method']}
+    ignore_columns: Columns to ignore from the original dataset. For example:
+      ['webpage_id_column'].
     location: The Bigquery and Vertex AI location for processing (e.g.
       'europe-west4' or 'us-east-4')
     window_date: The date to create 'customer-windows'. CrystalValue will train
@@ -104,8 +109,8 @@ class CrystalValue:
   customer_id_column: str = 'customer_id'
   date_column: str = 'date'
   value_column: str = 'value'
-  numerical_features: Optional[FrozenSet[str]] = None
-  non_numerical_features: Optional[FrozenSet[str]] = None
+  features_types: Optional[Mapping[str, List[str]]] = None
+  ignore_columns: Optional[Collection[str]] = None
   location: str = 'europe-west4'
   window_date: Optional[str] = None
   days_lookback: int = 365
@@ -193,10 +198,28 @@ class CrystalValue:
     Returns:
       The SQL script to generate training data ready for machine learning.
     """
+    if not self.features_types:
+      if not self.ignore_columns:
+        self.ignore_columns = [self.customer_id_column, self.date_column]
+      else:
+        self.ignore_columns = [self.customer_id_column, self.date_column
+                              ] + self.ignore_columns
+      self.features_types = feature_engineering.detect_feature_types(
+          bigquery_client=self.bigquery_client,
+          dataset_id=self.dataset_id,
+          table_name=transaction_table_name,
+          ignore_columns=self.ignore_columns)
+      if not self.features_types:
+        raise ValueError('No features detected')
+      for feature_type in self.features_types:
+        for feature in self.features_types[feature_type]:
+          logging.info('Detected %r feature %r', feature_type, feature)
+
     query = feature_engineering.build_train_query(
         bigquery_client=self.bigquery_client,
         dataset_id=self.dataset_id,
         transaction_table_name=transaction_table_name,
+        features_types=self.features_types,
         write_executed_query_file=write_executed_query_file,
         days_lookback=self.days_lookback,
         days_lookahead=self.days_lookahead,

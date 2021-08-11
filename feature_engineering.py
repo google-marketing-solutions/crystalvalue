@@ -29,7 +29,7 @@ _NUMERICAL_TRANSFORMATIONS = frozenset(['AVG', 'MAX', 'MIN', 'SUM'])
 
 # SQL templates library
 _TRAIN_QUERY_TEMPLATE_FILES = {
-    'train_user_split': './sql_templates/train_user_split.sql'
+    'train_user_split': 'crystalvalue/sql_templates/train_user_split.sql'
 }
 
 
@@ -147,9 +147,10 @@ def run_data_checks(
   return summary_data
 
 
-def _detect_feature_types(bigquery_client: bigquery.Client, dataset_id: str,
-                          table_name: str,
-                          ignore_columns: List[str]) -> Dict[str, List[str]]:
+def detect_feature_types(bigquery_client: bigquery.Client,
+                         dataset_id: str,
+                         table_name: str,
+                         ignore_columns: List[str]) -> Dict[str, List[str]]:
   """Detects the feature types using the schema in BigQuery.
 
   Args:
@@ -170,18 +171,19 @@ def _detect_feature_types(bigquery_client: bigquery.Client, dataset_id: str,
       'Detecting features types in project_id %r in dataset %r in table %r',
       bigquery_client.project, dataset_id, table_name)
 
-  features = {}
+  features_types = {}
   for feature in table.schema:
     if feature.name not in ignore_columns:
       if feature.mode == 'REPEATED':
-        features.setdefault('array', []).append(feature.name)
+        features_types.setdefault('array', []).append(feature.name)
       elif feature.field_type == 'BOOLEAN':
-        features.setdefault('boolean', []).append(feature.name)
+        features_types.setdefault('boolean', []).append(feature.name)
       elif feature.field_type in ['INTEGER', 'FLOAT', 'NUMERIC']:
-        features.setdefault('numeric', []).append(feature.name)
+        features_types.setdefault('numeric', []).append(feature.name)
       else:
-        features.setdefault('string_or_categorical', []).append(feature.name)
-  return features
+        features_types.setdefault('string_or_categorical',
+                                  []).append(feature.name)
+  return features_types
 
 
 def _read_file(file_name: str) -> str:
@@ -200,11 +202,10 @@ def build_train_query(
     bigquery_client: bigquery.Client,
     dataset_id: str,
     transaction_table_name: str,
+    features_types: Mapping[str, List[str]],
     query_type: str = 'train_user_split',
     numerical_transformations: Collection[str] = _NUMERICAL_TRANSFORMATIONS,
     write_executed_query_file: Optional[str] = None,
-    features: Optional[Mapping[str, str]] = None,
-    ignore_columns: Optional[List[str]] = None,
     days_lookback: int = 365,
     days_lookahead: int = 365,
     customer_id_column: str = 'customer_id',
@@ -218,20 +219,20 @@ def build_train_query(
   learning-ready dataset that can be ingested by AutoML. The SQL query can be
   written to the file path `write_executed_query_file` for manual modifications.
   Data types will be automatically detected from the BigQuery schema if
-  `features` argument is not provided. Columns can be REPEATED, however note
+  `features_types` argument is not provided. Columns can be REPEATED, however
+  note
   that RECORD type (i.e. SQL STRUCT type) is currently not supported.
 
   Args:
     bigquery_client: BigQuery client.
     dataset_id: The Bigquery dataset_id.
     transaction_table_name: The Bigquery table name with transactions.
+    features_types: The mapping of feature types to feature names.
     query_type: The query type. Has to be one of the keys in
       _TRAIN_QUERY_TEMPLATE_FILES. See README for more information.
     numerical_transformations: The types of transformations for numerical
       features.
     write_executed_query_file: File path to write the generated SQL query.
-    features: The mapping of feature types to feature names.
-    ignore_columns: Column name to ignore when automatically detecting features.
     days_lookback: The number of days to look back to create features.
     days_lookahead: The number of days to look ahead to predict value.
     customer_id_column: The name of the customer id column.
@@ -246,37 +247,21 @@ def build_train_query(
     raise ValueError(
         f'{query_type} not one of {_TRAIN_QUERY_TEMPLATE_FILES.keys()}')
 
-  if not features:
-    if not ignore_columns:
-      ignore_columns = [customer_id_column, date_column]
-    else:
-      ignore_columns = [customer_id_column, date_column] + ignore_columns
-    features = _detect_feature_types(
-        bigquery_client,
-        dataset_id,
-        transaction_table_name,
-        ignore_columns=ignore_columns)
-    if not features:
-      raise ValueError('No features detected')
-    for feature_type in features:
-      for feature in features[feature_type]:
-        logging.info('Detected %r feature %r', feature_type, feature)
-
   features_list = []
-  if 'numeric' in features:
-    for feature in features['numeric']:
+  if 'numeric' in features_types:
+    for feature in features_types['numeric']:
       for transformation in numerical_transformations:
         features_list.append(f'{transformation}({feature}) as '
                              f'{transformation.lower()}_{feature}')
 
-  if 'boolean' in features:
-    for feature in features['boolean']:
+  if 'boolean' in features_types:
+    for feature in features_types['boolean']:
       for transformation in numerical_transformations:
         features_list.append(f'{transformation}(CAST({feature} AS INT)) as '
                              f'{transformation.lower()}_{feature}')
 
-  if 'string_or_categorical' in features:
-    for feature in features['string_or_categorical']:
+  if 'string_or_categorical' in features_types:
+    for feature in features_types['string_or_categorical']:
       features_list.append(f'TRIM(STRING_AGG(DISTINCT {feature}, " " ORDER BY '
                            f'{feature})) AS {feature}')
 
@@ -308,7 +293,6 @@ def build_train_query(
     _write_file(substituted_query, write_executed_query_file)
     logging.info('Query successfully written to: "%r"',
                  write_executed_query_file)
-
   return substituted_query
 
 
