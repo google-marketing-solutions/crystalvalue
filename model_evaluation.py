@@ -20,6 +20,8 @@ from scipy import stats
 import seaborn as sns
 from sklearn import metrics
 
+from crystalvalue import feature_engineering
+
 
 def _fetch_test_set_predictions_from_bigquery(bigquery_client: bigquery.Client,
                                               dataset_name: str,
@@ -169,20 +171,6 @@ def _plot_summary_stats(bin_data: pd.DataFrame, spearman_correlation: np.float,
   sns.despine(fig)
 
 
-def _load_table_to_bigquery(data: pd.DataFrame,
-                            bigquery_client: bigquery.Client, dataset_name: str,
-                            table_name: str, location: str) -> None:
-  """Loads a Pandas Dataframe to Bigquery."""
-  table_id = f'{bigquery_client.project}.{dataset_name}.{table_name}'
-  job_config = bigquery.job.LoadJobConfig(
-      write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
-  bigquery_client.load_table_from_dataframe(
-      dataframe=data,
-      destination=table_id,
-      job_config=job_config,
-      location=location).result()
-
-
 def _create_summary_stats_data(bin_data: pd.DataFrame, model_display_name: str,
                                spearman_correlation: np.float,
                                gini_normalized: np.float) -> pd.DataFrame:
@@ -280,10 +268,10 @@ def evaluate_model_predictions(bigquery_client: bigquery.Client,
       model_display_name=model_display_name,
       spearman_correlation=spearman_correlation,
       gini_normalized=gini_normalized)
-  _load_table_to_bigquery(
+  feature_engineering.run_load_table_to_bigquery(
       data=summary_stats_model,
       bigquery_client=bigquery_client,
-      dataset_name=dataset_name,
+      dataset_id=dataset_name,
       table_name=table_evaluation_stats,
       location=location)
   return bin_data

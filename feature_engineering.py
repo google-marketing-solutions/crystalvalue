@@ -20,6 +20,7 @@ from typing import Collection, Dict, List, Mapping, Optional
 from google.cloud import bigquery
 import pandas as pd
 
+
 logging.getLogger().setLevel(logging.INFO)
 
 # BigQuery aggregate functions to apply to numerical and boolean columns.
@@ -30,6 +31,120 @@ _NUMERICAL_TRANSFORMATIONS = frozenset(['AVG', 'MAX', 'MIN', 'SUM'])
 _TRAIN_QUERY_TEMPLATE_FILES = {
     'train_user_split': './sql_templates/train_user_split.sql'
 }
+
+
+def run_load_table_to_bigquery(data: pd.DataFrame,
+                               bigquery_client: bigquery.Client,
+                               dataset_id: str,
+                               table_name: str,
+                               location: str = 'europe-west4') -> None:
+  """Loads a Pandas Dataframe to Bigquery."""
+  table_id = f'{bigquery_client.project}.{dataset_id}.{table_name}'
+  job_config = bigquery.job.LoadJobConfig(
+      write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
+  logging.info('Creating table %r in location %r', table_id, location)
+  bigquery_client.load_table_from_dataframe(
+      dataframe=data,
+      destination=table_id,
+      job_config=job_config,
+      location=location).result()
+
+
+def run_data_checks(
+    bigquery_client: bigquery.Client,
+    dataset_id: str,
+    table_name: str,
+    location: str,
+    days_lookback: int = 365,
+    days_lookahead: int = 365,
+    customer_id_column: str = 'customer_id',
+    date_column: str = 'date',
+    value_column: str = 'value',
+    round_decimal_places: int = 2,
+    summary_table_name: str = 'summary_statistics') -> pd.DataFrame:
+  """Raises exceptions for data issues and outputs summary table to Bigquery.
+
+  Args:
+    bigquery_client: BigQuery client.
+    dataset_id: The Bigquery dataset_id.
+    table_name: The name of the transaction table.
+    location: The data location.
+    days_lookback: The number of days to look back to create features.
+    days_lookahead: The number of days to look ahead to predict value.
+    customer_id_column: The name of the customer id column.
+    date_column: The name of the date column.
+    value_column: The name of the value column.
+    round_decimal_places: Then number of decimal places to round to.
+    summary_table_name: The name of the summary table to create in Bigquery.
+
+  Raises:
+    ValueError: If there are too rows in the dataset.
+    ValueError: If there analysis period isn't long enough relative to the
+     chosen lookahead and lookback days.
+
+  Returns:
+    Summary table.
+  """
+
+  query = f"""
+  SELECT
+    {customer_id_column},
+    {date_column},
+    {value_column}
+  FROM {bigquery_client.project}.{dataset_id}.{table_name}
+  """
+  data = bigquery_client.query(query, location=location).result().to_dataframe()
+
+  max_date = datetime.datetime.strptime(data[date_column].max(), '%Y-%m-%d')
+  min_date = datetime.datetime.strptime(data[date_column].min(), '%Y-%m-%d')
+
+  summary_data = pd.Series({
+      'number_of_rows':
+          len(data),
+      'number_of_customers':
+          data[customer_id_column].nunique(),
+      'number_of_transactions':
+          len(data[data[value_column] > 0]),
+      'total_analysis_days':
+          (max_date - min_date).days,
+      'number_of_days_with_data':
+          data[date_column].nunique(),
+      'max_transaction_date':
+          max_date,
+      'min_transaction_date':
+          min_date})
+
+  value_summary = data[value_column].describe()[1:].round(round_decimal_places)
+  value_summary.index = [f'{value_column}_{statistic}' for statistic in
+                         value_summary.index.str.replace('%', '_quantile')]
+
+  transactions_summary = data.groupby(
+      'customer_id').size().describe()[1:].round(round_decimal_places)
+  transactions_summary.index = [
+      f'transactions_per_customer_{statistic}'
+      for statistic in transactions_summary.index.str.replace('%', '_quantile')
+  ]
+  summary_data = pd.concat([summary_data, value_summary, transactions_summary])
+
+  if summary_data['number_of_rows'] < 1000:
+    raise ValueError(
+        f'{summary_data["number_of_rows"]} is too few data points to '
+        'build an LTV model.')
+
+  if summary_data['total_analysis_days'] < days_lookback + days_lookahead:
+    raise ValueError(
+        f'Insufficient analysis days ({summary_data["total_analysis_days"]})'
+        f'for selected lookahead ({days_lookahead} days) and '
+        f'lookback ({days_lookback} days) windows')
+
+  summary_data = summary_data.to_frame('statistics').T
+  run_load_table_to_bigquery(
+      summary_data,
+      bigquery_client,
+      dataset_id,
+      table_name=summary_table_name,
+      location=location)
+  return summary_data
 
 
 def _detect_feature_types(bigquery_client: bigquery.Client, dataset_id: str,
@@ -168,7 +283,8 @@ def build_train_query(
   if not window_date:
     window_date = (datetime.date.today() -
                    datetime.timedelta(days=days_lookback)).strftime('%Y-%m-%d')
-    logging.info('Using window date %r', window_date)
+    logging.info('Using window date %r. This has been inferred based on'
+                 'the current date and the lookback window', window_date)
     logging.info('Using a lookback window of %r days to create features',
                  days_lookback)
     logging.info('Using a lookahead window of %r days to predict value',

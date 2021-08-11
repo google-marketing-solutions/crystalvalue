@@ -36,6 +36,12 @@ pipeline = crystalvalue.CrystalValue(
 # create a synthetic transaction dataset and load it to BigQuery.
 data = pipeline.create_synthetic_data(table_name='synthetic_data')
 
+# (Optional) Run automated data checks on your input data to ensure
+# that you have sufficient data. This also outputs a summary table in your
+# Bigquery dataset which can be useful to spot outliers.
+summary_statistics = pipeline.run_data_checks(
+    transaction_table_name='synthetic_data')
+
 # Perform feature engineering using BigQuery.
 # CrystalValue automatically detects data types and applies transformations.
 # CrystalValue by default will predict 1 year ahead using data
@@ -47,6 +53,8 @@ training_data_query = pipeline.feature_engineer(
 pipeline.train()
 
 # Check out your trained AutoML model in the Google Cloud Platform UI!
+# The feature importance graphs and statistics can be viewed in the UI.
+# Statistics on your features can also be viewed here.
 # https://console.cloud.google.com//vertex-ai/models
 
 # Now create LTV predictions using the model and input data.
@@ -87,6 +95,8 @@ class CrystalValue:
       a model using data from 1 year before this date to predict value from 1
       year after this date. If `None` (default), then CrystalValue will set the
       window_date to 365 days ago.
+    days_lookback: The number of days to look back to create features.
+    days_lookahead: The number of days to look ahead to predict value.
   """
   bigquery_client: bigquery.Client
   dataset_id: str
@@ -98,6 +108,8 @@ class CrystalValue:
   non_numerical_features: Optional[FrozenSet[str]] = None
   location: str = 'europe-west4'
   window_date: Optional[str] = None
+  days_lookback: int = 365
+  days_lookahead: int = 365
 
   def create_synthetic_data(self,
                             table_name: str = 'synthetic_data',
@@ -129,11 +141,38 @@ class CrystalValue:
         load_table_to_bigquery=True,
         location=self.location)
 
-  def feature_engineer(self,
-                       transaction_table_name: str,
-                       write_executed_query_file: Optional[str] = None,
-                       days_lookback: int = 365,
-                       days_lookahead: int = 365) -> pd.DataFrame:
+  def run_data_checks(self,
+                      transaction_table_name: str,
+                      round_decimal_places: int = 2,
+                      summary_table_name: str = 'summary_statistics'
+                      ) -> pd.DataFrame:
+    """Runs data checks on transaction data.
+
+    Args:
+      transaction_table_name: The name of the table with the data.
+      round_decimal_places: The number of decimal places to round to.
+      summary_table_name: The name of the statistics table to output.
+
+    Returns:
+      Summary table.
+    """
+    return feature_engineering.run_data_checks(
+        bigquery_client=self.bigquery_client,
+        dataset_id=self.dataset_id,
+        table_name=transaction_table_name,
+        summary_table_name=summary_table_name,
+        days_lookback=self.days_lookback,
+        days_lookahead=self.days_lookahead,
+        customer_id_column=self.customer_id_column,
+        date_column=self.date_column,
+        value_column=self.value_column,
+        round_decimal_places=round_decimal_places,
+        location=self.location)
+
+  def feature_engineer(
+      self,
+      transaction_table_name: str,
+      write_executed_query_file: Optional[str] = None) -> pd.DataFrame:
     """Builds training data from transaction data through BigQuery.
 
     This function takes a transaction dataset (a BigQuery table that includes
@@ -150,8 +189,6 @@ class CrystalValue:
     Args:
       transaction_table_name: The Bigquery table name with transactions.
       write_executed_query_file: File path to write the generated SQL query.
-      days_lookback: The number of days to look back to create features.
-      days_lookahead: The number of days to look ahead to predict value.
 
     Returns:
       The SQL script to generate training data ready for machine learning.
@@ -161,8 +198,8 @@ class CrystalValue:
         dataset_id=self.dataset_id,
         transaction_table_name=transaction_table_name,
         write_executed_query_file=write_executed_query_file,
-        days_lookback=days_lookback,
-        days_lookahead=days_lookahead,
+        days_lookback=self.days_lookback,
+        days_lookahead=self.days_lookahead,
         customer_id_column=self.customer_id_column,
         date_column=self.date_column,
         value_column=self.value_column,

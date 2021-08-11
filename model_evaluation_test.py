@@ -18,6 +18,7 @@ import unittest
 from google.cloud import bigquery
 import mock
 
+from crystalvalue import feature_engineering
 from crystalvalue import model_evaluation
 
 _NUMBER_BINS = 5
@@ -52,7 +53,8 @@ class MockModelLtvTest(unittest.TestCase):
     self.table_evaluation_stats = 'table_evaluation_stats'
     self.number_bins = _NUMBER_BINS
 
-  @mock.patch.object(model_evaluation, '_load_table_to_bigquery', autospec=True)
+  @mock.patch.object(
+      feature_engineering, 'run_load_table_to_bigquery', autospec=True)
   def test_client_called_once(self, mock_load_table_to_bigquery):
     model_evaluation.evaluate_model_predictions(
         bigquery_client=self.mock_client,
