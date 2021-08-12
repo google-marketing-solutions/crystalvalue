@@ -104,10 +104,6 @@ class CrystalValue:
       ['webpage_id_column'].
     location: The Bigquery and Vertex AI location for processing (e.g.
       'europe-west4' or 'us-east-4')
-    window_date: The date to create 'customer-windows'. CrystalValue will train
-      a model using data from 1 year before this date to predict value from 1
-      year after this date. If `None` (default), then CrystalValue will set the
-      window_date to 365 days ago.
     days_lookback: The number of days to look back to create features.
     days_lookahead: The number of days to look ahead to predict value.
     model_id: The ID of the model that will be created.
@@ -121,7 +117,6 @@ class CrystalValue:
   features_types: Optional[Mapping[str, List[str]]] = None
   ignore_columns: Optional[Collection[str]] = None
   location: str = 'europe-west4'
-  window_date: Optional[str] = None
   days_lookback: int = 365
   days_lookahead: int = 365
   model_id: str = None
@@ -204,15 +199,11 @@ class CrystalValue:
     """Builds training data from transaction data through BigQuery.
 
     This function takes a transaction dataset (a BigQuery table that includes
-    information about purchases) and creates a script to generate a machine
-    learning-ready dataset that can be ingested by AutoML.The SQL query can be
+    information about purchases) and creates a machine learning-ready dataset
+    that can be ingested by AutoML.The SQL query can be
     written to the file path `write_executed_query_file` for manual
     modifications. Data types will be automatically detected from the BigQuery
-    schema if `numerical_features` and `string_or_categorical_features` are not
-    provided. By default, the model will use features from between 2 and 1 years
-    ago to predict value from between 1 year ago and now. This is configurable
-    using the `window_date` class attribute and the days_look_back and
-    days_look_ahead method arguments.
+    schema if `feature_types` are not provided in the class attributes.
 
     Args:
       transaction_table_name: The Bigquery table name with transactions.
@@ -248,8 +239,7 @@ class CrystalValue:
         days_lookahead=self.days_lookahead,
         customer_id_column=self.customer_id_column,
         date_column=self.date_column,
-        value_column=self.value_column,
-        window_date=self.window_date)
+        value_column=self.value_column)
 
     return self.run_query(query_sql=query)
 

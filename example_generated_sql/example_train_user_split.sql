@@ -12,52 +12,118 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
--- Example generated query for building training data to predict LTV.
+-- Build training dataset for a machine learning model to predict LTV.
 
-WITH customer_windows AS (
-SELECT
-  DISTINCT data.customer_id AS customer_id,
-  DATE("2020-04-22") AS window_date,
-  DATE_SUB(DATE("2020-04-22"), interval 365 day) AS lookback_start,
-  DATE_ADD(DATE("2020-04-22"), interval 1 day) AS lookahead_start,
-  DATE_ADD(DATE("2020-04-22"), interval 365 day) AS lookahead_stop
-FROM my_project.dataset_ltv.synthetic_transaction_data AS data
-ORDER BY RAND()
-),
+-- The query creates a column `predefined_split_column` which takes approximately the
+-- values `TEST` for 15% of customers, `VALIDATE` for 15% of customers and
+-- `TRAIN` for 70% of customers. Note that there can be multiple rows for each customer (i.e.
+-- customers are observed during different time windows). Time windows are defined by customers and
+-- months, so a customer can be observed each month (with different features and future values).
+-- There is at most 10 rows per customer in the final dataset (randomly sampled months) which
+-- prevents frequent purchasers from having too much weight.
 
-target AS (
-SELECT
-  customer_windows.*,
-  SUM(IFNULL(data.value, 0)) as future_value,
-FROM
-  customer_windows
-LEFT JOIN
-  my_project.dataset_ltv.synthetic_transaction_data data
-ON
-  (data.customer_id = customer_windows.customer_id AND
-   DATE(data.date) BETWEEN customer_windows.lookahead_start AND customer_windows.lookahead_stop)
-GROUP BY
-  1,2,3,4,5
-)
+-- @param days_lookback INT The number of days to look back to create features.
+-- @param days_lookahead INT The number of days to look ahead to predict LTV.
+-- @param customer_id_column STRING The column containing the customer ID.
+-- @param date_column STRING The column containing the transaction date.
+-- @param value_column STRING The column containing the value column.
+-- @param features_sql STRING The SQL for the features and transformations.
 
+WITH
+  DateWindowsTable AS (
+    SELECT window_date
+    FROM
+      UNNEST(
+        GENERATE_DATE_ARRAY(
+          DATE_ADD(
+            DATE(
+              (SELECT MIN(date) FROM my_project.my_dataset.my_table)),
+            INTERVAL 365 DAY),
+          DATE_SUB(
+            DATE(
+              (SELECT MAX(date) FROM my_project.my_dataset.my_table)),
+            INTERVAL 365 DAY),
+          INTERVAL 1 MONTH)) AS window_date
+  ),
+  CustomerWindows AS (
+    SELECT DISTINCT
+      TX_DATA.customer_id AS customer_id,
+      DateWindowsTable.window_date AS window_date,
+      DATE_SUB(DateWindowsTable.window_date, INTERVAL 365 day) AS lookback_start,
+      DATE_ADD(DateWindowsTable.window_date, INTERVAL 1 day) AS lookahead_start,
+      DATE_ADD(DateWindowsTable.window_date, INTERVAL 365 day) AS lookahead_stop,
+      ROW_NUMBER()
+        OVER (PARTITION BY TX_DATA.customer_id ORDER BY RAND()) AS customer_window_number
+    FROM my_project.my_dataset.my_table AS TX_DATA
+    CROSS JOIN DateWindowsTable
+  ),
+  Target AS (
+    SELECT
+      CustomerWindows.*,
+      SUM(IFNULL(TX_DATA.value, 0)) AS future_value,
+    FROM
+      CustomerWindows
+    LEFT JOIN
+      my_project.my_dataset.my_table AS TX_DATA
+      ON (
+        TX_DATA.customer_id = CustomerWindows.customer_id
+        AND DATE(TX_DATA.date)
+          BETWEEN CustomerWindows.lookahead_start
+          AND CustomerWindows.lookahead_stop)
+    GROUP BY
+      1, 2, 3, 4, 5, 6
+  )
 SELECT
-  target.*,
-  IFNULL(DATE_DIFF(target.window_date, MAX(DATE(data.date)), DAY), 365) AS days_since_last_purchase,
-  AVG(numeric_column) as avg_numeric_column,
+  Target.* EXCEPT (customer_window_number),
+  CASE
+    WHEN
+      ABS(
+        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id))), 100))
+      BETWEEN 0
+      AND 15
+      THEN 'TEST'
+    WHEN
+      ABS(
+        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id))), 100))
+      BETWEEN 15
+      AND 30
+      THEN 'VALIDATE'
+    WHEN
+      ABS(
+        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id))), 100))
+      BETWEEN 30
+      AND 100
+      THEN 'TRAIN'
+    END AS predefined_split_column,
+  IFNULL(
+    DATE_DIFF(Target.window_date, MAX(DATE(TX_DATA.date)), DAY),
+    365) AS days_since_last_transaction,
+  IFNULL(
+    DATE_DIFF(Target.window_date, MIN(DATE(TX_DATA.date)), DAY),
+    365) AS days_since_first_transaction,
+  COUNT(*) AS count_transactions,
+  SUM(numeric_column) as sum_numeric_column,
   MAX(numeric_column) as max_numeric_column,
   MIN(numeric_column) as min_numeric_column,
-  AVG(value) as avg_value,
+  AVG(numeric_column) as avg_numeric_column,
+  SUM(value) as sum_value,
   MAX(value) as max_value,
   MIN(value) as min_value,
-  TRIM(STRING_AGG(DISTINCT categorical_column, " " order by categorical_column)) AS categorical_column,
-  TRIM(STRING_AGG(DISTINCT text_column, " " order by text_column)) AS text_column,
-
+  AVG(value) as avg_value,
+  SUM(CAST(bool_column AS INT)) as sum_bool_column,
+  MAX(CAST(bool_column AS INT)) as max_bool_column,
+  MIN(CAST(bool_column AS INT)) as min_bool_column,
+  AVG(CAST(bool_column AS INT)) as avg_bool_column,
+  TRIM(STRING_AGG(DISTINCT categorical_column, " " ORDER BY categorical_column)) AS categorical_column,
+  TRIM(STRING_AGG(DISTINCT text_column, " " ORDER BY text_column)) AS text_column
 FROM
-  target
+  Target
 JOIN
-  my_project.dataset_ltv.synthetic_transaction_data data
-ON
-  (data.customer_id = target.customer_id AND
-   DATE(data.date) BETWEEN target.lookback_start AND DATE(target.window_date))
+  my_project.my_dataset.my_table AS TX_DATA
+  ON (
+    TX_DATA.customer_id = Target.customer_id
+    AND DATE(TX_DATA.date) BETWEEN Target.lookback_start AND DATE(Target.window_date))
+WHERE Target.customer_window_number <= 10
 GROUP BY
-  1,2,3,4,5,6;
+  1, 2, 3, 4, 5, 6, 7;
+

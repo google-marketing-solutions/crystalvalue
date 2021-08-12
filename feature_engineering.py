@@ -172,13 +172,11 @@ def detect_feature_types(bigquery_client: bigquery.Client,
   features_types = {}
   for feature in table.schema:
     if feature.name not in ignore_columns:
-      if feature.mode == 'REPEATED':
-        features_types.setdefault('array', []).append(feature.name)
-      elif feature.field_type == 'BOOLEAN':
+      if feature.field_type == 'BOOLEAN':
         features_types.setdefault('boolean', []).append(feature.name)
       elif feature.field_type in ['INTEGER', 'FLOAT', 'NUMERIC']:
         features_types.setdefault('numeric', []).append(feature.name)
-      else:
+      elif feature.field_type == 'STRING':
         features_types.setdefault('string_or_categorical',
                                   []).append(feature.name)
   return features_types
@@ -208,8 +206,7 @@ def build_train_query(
     days_lookahead: int = 365,
     customer_id_column: str = 'customer_id',
     date_column: str = 'date',
-    value_column: str = 'value',
-    window_date: Optional[str] = None) -> str:
+    value_column: str = 'value') -> str:
   """Builds training data from transaction data through BigQuery.
 
   This function takes a transaction dataset (a BigQuery table that includes
@@ -236,7 +233,6 @@ def build_train_query(
     customer_id_column: The name of the customer id column.
     date_column: The name of the date column.
     value_column: The name of the value column.
-    window_date: The date to create 'customer-windows'
 
   Returns:
     The SQL script to generate training data ready for machine learning.
@@ -249,13 +245,13 @@ def build_train_query(
   if 'numeric' in features_types:
     for feature in features_types['numeric']:
       for transformation in numerical_transformations:
-        features_list.append(f'{transformation}({feature}) as '
+        features_list.append(f'{transformation}({feature}) AS '
                              f'{transformation.lower()}_{feature}')
 
   if 'boolean' in features_types:
     for feature in features_types['boolean']:
       for transformation in numerical_transformations:
-        features_list.append(f'{transformation}(CAST({feature} AS INT)) as '
+        features_list.append(f'{transformation}(CAST({feature} AS INT)) AS '
                              f'{transformation.lower()}_{feature}')
 
   if 'string_or_categorical' in features_types:
@@ -263,17 +259,12 @@ def build_train_query(
       features_list.append(f'TRIM(STRING_AGG(DISTINCT {feature}, " " ORDER BY '
                            f'{feature})) AS {feature}')
 
-  if not window_date:
-    window_date = (datetime.date.today() -
-                   datetime.timedelta(days=days_lookback)).strftime('%Y-%m-%d')
-
   query_template_train = _read_file(_TRAIN_QUERY_TEMPLATE_FILES[query_type])
 
   substituted_query = query_template_train.format(
       project_id=bigquery_client.project,
       dataset_id=dataset_id,
       table_name=transaction_table_name,
-      window_date=window_date,
       customer_id_column=customer_id_column,
       date_column=date_column,
       value_column=value_column,

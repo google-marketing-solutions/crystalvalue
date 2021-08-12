@@ -14,10 +14,14 @@
 
 -- Build training dataset for a machine learning model to predict LTV.
 
--- The query creates an additional column `predefined_split_column` which takes approximately the
--- values `TEST` for 15% of rows, `VALIDATE` for 15% of rows and `TRAIN` for 70% of rows.
+-- The query creates a column `predefined_split_column` which takes approximately the
+-- values `TEST` for 15% of customers, `VALIDATE` for 15% of customers and
+-- `TRAIN` for 70% of customers. Note that there can be multiple rows for each customer (i.e.
+-- customers are observed during different time windows). Time windows are defined by customers and
+-- months, so a customer can be observed each month (with different features and future values).
+-- There is at most 10 rows per customer in the final dataset (randomly sampled months) which
+-- prevents frequent purchasers from having too much weight.
 
--- @param window_date STRING The date for the window date
 -- @param days_lookback INT The number of days to look back to create features.
 -- @param days_lookahead INT The number of days to look ahead to predict LTV.
 -- @param customer_id_column STRING The column containing the customer ID.
@@ -26,14 +30,32 @@
 -- @param features_sql STRING The SQL for the features and transformations.
 
 WITH
+  DateWindowsTable AS (
+    SELECT window_date
+    FROM
+      UNNEST(
+        GENERATE_DATE_ARRAY(
+          DATE_ADD(
+            DATE(
+              (SELECT MIN({date_column}) FROM {project_id}.{dataset_id}.{table_name})),
+            INTERVAL {days_lookback} DAY),
+          DATE_SUB(
+            DATE(
+              (SELECT MAX({date_column}) FROM {project_id}.{dataset_id}.{table_name})),
+            INTERVAL {days_lookahead} DAY),
+          INTERVAL 1 MONTH)) AS window_date
+  ),
   CustomerWindows AS (
     SELECT DISTINCT
       TX_DATA.{customer_id_column} AS customer_id,
-      DATE("{window_date}") AS window_date,
-      DATE_SUB(DATE("{window_date}"), INTERVAL {days_lookback} day) AS lookback_start,
-      DATE_ADD(DATE("{window_date}"), INTERVAL 1 day) AS lookahead_start,
-      DATE_ADD(DATE("{window_date}"), INTERVAL {days_lookahead} day) AS lookahead_stop
+      DateWindowsTable.window_date AS window_date,
+      DATE_SUB(DateWindowsTable.window_date, INTERVAL {days_lookback} day) AS lookback_start,
+      DATE_ADD(DateWindowsTable.window_date, INTERVAL 1 day) AS lookahead_start,
+      DATE_ADD(DateWindowsTable.window_date, INTERVAL {days_lookahead} day) AS lookahead_stop,
+      ROW_NUMBER()
+        OVER (PARTITION BY TX_DATA.{customer_id_column} ORDER BY RAND()) AS customer_window_number
     FROM {project_id}.{dataset_id}.{table_name} AS TX_DATA
+    CROSS JOIN DateWindowsTable
   ),
   Target AS (
     SELECT
@@ -49,27 +71,26 @@ WITH
           BETWEEN CustomerWindows.lookahead_start
           AND CustomerWindows.lookahead_stop)
     GROUP BY
-      1, 2, 3, 4, 5
-)
-
+      1, 2, 3, 4, 5, 6
+  )
 SELECT
-Target.*,
+  Target.* EXCEPT (customer_window_number),
   CASE
     WHEN
       ABS(
-        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id, Target.window_date))), 100))
+        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id))), 100))
       BETWEEN 0
       AND 15
       THEN 'TEST'
     WHEN
       ABS(
-        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id, Target.window_date))), 100))
+        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id))), 100))
       BETWEEN 15
       AND 30
       THEN 'VALIDATE'
     WHEN
       ABS(
-        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id, Target.window_date))), 100))
+        MOD(FARM_FINGERPRINT(TO_JSON_STRING(STRUCT(Target.customer_id))), 100))
       BETWEEN 30
       AND 100
       THEN 'TRAIN'
@@ -89,5 +110,6 @@ JOIN
   ON (
     TX_DATA.{customer_id_column} = Target.customer_id
     AND DATE(TX_DATA.{date_column}) BETWEEN Target.lookback_start AND DATE(Target.window_date))
+WHERE Target.customer_window_number <= 10
 GROUP BY
   1, 2, 3, 4, 5, 6, 7;
