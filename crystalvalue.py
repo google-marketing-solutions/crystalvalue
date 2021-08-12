@@ -52,10 +52,16 @@ training_data_query = pipeline.feature_engineer(
 # Creates AI Platform Dataset and trains AutoML model.
 pipeline.train()
 
-# Check out your trained AutoML model in the Google Cloud Platform UI!
-# The feature importance graphs and statistics can be viewed in the UI.
-# Statistics on your features can also be viewed here.
+# You can view your model training progress here:
+# https://console.cloud.google.com/vertex-ai/training/training-pipelines
+# Once the training is finished, check out your trained AutoML model in the UI.
+# Feature importance graphs and statistics on the data can be viewed here.
 # https://console.cloud.google.com//vertex-ai/models
+
+# You can also deploy your model to create fast predictions and to create
+# LTV model evaluation statistics.
+pipeline.deploy_model()
+pipeline.evaluate_model(endpoint='23554634534545')
 
 # Now create LTV predictions using the model and input data.
 pipeline.predict(
@@ -68,11 +74,13 @@ import dataclasses
 from typing import Collection, List, Mapping, Optional
 
 from absl import logging
+from google.cloud import aiplatform
 from google.cloud import bigquery
 import pandas as pd
 
 from crystalvalue import automl
 from crystalvalue import feature_engineering
+from crystalvalue import model_evaluation
 from crystalvalue import synthetic_data
 
 
@@ -90,8 +98,8 @@ class CrystalValue:
     features_types: A mapping of the feature type to a list of columns of such
       type. For example:
       {'numeric': ['transaction_value', 'number_products'],
-      'boolean': ['is_registered_customer'],
-      'string_or_categorical': ['transaction_type', 'payment_method']}
+       'boolean': ['is_registered_customer'],
+       'string_or_categorical': ['transaction_type', 'payment_method']}
     ignore_columns: Columns to ignore from the original dataset. For example:
       ['webpage_id_column'].
     location: The Bigquery and Vertex AI location for processing (e.g.
@@ -102,6 +110,7 @@ class CrystalValue:
       window_date to 365 days ago.
     days_lookback: The number of days to look back to create features.
     days_lookahead: The number of days to look ahead to predict value.
+    model_id: The ID of the model that will be created.
   """
   bigquery_client: bigquery.Client
   dataset_id: str
@@ -115,6 +124,20 @@ class CrystalValue:
   window_date: Optional[str] = None
   days_lookback: int = 365
   days_lookahead: int = 365
+  model_id: str = None
+
+  def __post_init__(self):
+    logging.info('Using Google Cloud Project: %r', self.bigquery_client.project)
+    logging.info('Using dataset_id: %r', self.dataset_id)
+    logging.info('Using Google Cloud location: %r', self.location)
+    logging.info('Using customer id column in input table: %r',
+                 self.customer_id_column)
+    logging.info('Using date column in input table: %r', self.date_column)
+    logging.info('Using value column in input table: %r', self.value_column)
+    logging.info('Using days_lookback for feature calculation: %r',
+                 self.days_lookback)
+    logging.info('Using days_lookahead for value prediction: %r',
+                 self.days_lookahead)
 
   def create_synthetic_data(self,
                             table_name: str = 'synthetic_data',
@@ -258,7 +281,7 @@ class CrystalValue:
             predefined_split_column_name: str = 'predefined_split_column',
             target_column: str = 'future_value',
             optimization_objective: str = 'minimize-rmse',
-            budget_milli_node_hours: int = 1000) -> None:
+            budget_milli_node_hours: int = 1000) -> aiplatform.models.Model:
     """Creates Vertex AI Dataset and trains an AutoML Tabular model.
 
     An AutoML Dataset is required before training a model. See
@@ -282,6 +305,9 @@ class CrystalValue:
         root-mean-squared log error (RMSLE).
       budget_milli_node_hours: The number of node hours to use to train the
         model (times 1000), 1000 milli node hours is 1 mode hour.
+
+    Returns:
+      Vertex AI AutoML model.
     """
 
     aiplatform_dataset = automl.create_automl_dataset(
@@ -291,7 +317,7 @@ class CrystalValue:
         dataset_display_name=dataset_display_name,
         location=self.location)
 
-    automl.train_automl_model(
+    model = automl.train_automl_model(
         project_id=self.bigquery_client.project,
         aiplatform_dataset=aiplatform_dataset,
         model_display_name=model_display_name,
@@ -300,6 +326,8 @@ class CrystalValue:
         optimization_objective=optimization_objective,
         budget_milli_node_hours=budget_milli_node_hours,
         location=self.location)
+    self.model_id = model.display_name
+    return model
 
   def predict(self,
               input_table_name: str,
@@ -332,3 +360,43 @@ class CrystalValue:
         location=self.location,
         destination_table=destination_table,
         model_name=model_name)
+
+  def deploy_model(self, model_id: Optional[str] = None) -> aiplatform.Model:
+    """Creates an endpoint and deploys Vertex AI Tabular AutoML model.
+
+    Args:
+      model_id: The ID of the model.
+
+    Returns:
+      AI Platform model object.
+    """
+    if not model_id:
+      model_id = self.model_id
+    return automl.deploy_model(
+        self.bigquery_client, model_id, location=self.location)
+
+  def evaluate_model(self,
+                     endpoint: str,
+                     table_evaluation_stats: str = 'crystalvalue_evaluation',
+                     number_bins: int = 10) -> pd.DataFrame:
+    """Creates a plot and Big Query table with evaluation metrics for LTV model.
+
+    Args:
+      endpoint: The endpoint ID of the model.
+      table_evaluation_stats: Destination BigQuery Table to store model results.
+      number_bins: Number of bins to split the LTV predictions into for
+        evaluation. The default split is into deciles.
+
+    Returns:
+      Dataframe with details of model and average predicted and actual LTV,
+      Normalized MAE and MAPE by
+      decile along with Spearman and Normalized Gini Coefficient.
+    """
+    return model_evaluation.evaluate_model_predictions(
+        bigquery_client=self.bigquery_client,
+        dataset_id=self.dataset_id,
+        endpoint=endpoint,
+        model_id=self.model_id,
+        table_evaluation_stats=table_evaluation_stats,
+        location=self.location,
+        number_bins=number_bins)

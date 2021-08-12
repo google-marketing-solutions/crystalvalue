@@ -33,16 +33,21 @@ _TRAIN_QUERY_TEMPLATE_FILES = {
 }
 
 
-def run_load_table_to_bigquery(data: pd.DataFrame,
-                               bigquery_client: bigquery.Client,
-                               dataset_id: str,
-                               table_name: str,
-                               location: str = 'europe-west4') -> None:
+def run_load_table_to_bigquery(
+    data: pd.DataFrame,
+    bigquery_client: bigquery.Client,
+    dataset_id: str,
+    table_name: str,
+    location: str = 'europe-west4',
+    write_disposition: str = bigquery.WriteDisposition.WRITE_TRUNCATE) -> None:
   """Loads a Pandas Dataframe to Bigquery."""
   table_id = f'{bigquery_client.project}.{dataset_id}.{table_name}'
   job_config = bigquery.job.LoadJobConfig(
-      write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
-  logging.info('Creating table %r in location %r', table_id, location)
+      write_disposition=write_disposition)
+  if write_disposition == bigquery.WriteDisposition.WRITE_TRUNCATE:
+    logging.info('Creating table %r in location %r', table_id, location)
+  else:
+    logging.info('Appending to table %r in location %r', table_id, location)
   bigquery_client.load_table_from_dataframe(
       dataframe=data,
       destination=table_id,
@@ -99,20 +104,13 @@ def run_data_checks(
   min_date = datetime.datetime.strptime(data[date_column].min(), '%Y-%m-%d')
 
   summary_data = pd.Series({
-      'number_of_rows':
-          len(data),
-      'number_of_customers':
-          data[customer_id_column].nunique(),
-      'number_of_transactions':
-          len(data[data[value_column] > 0]),
-      'total_analysis_days':
-          (max_date - min_date).days,
-      'number_of_days_with_data':
-          data[date_column].nunique(),
-      'max_transaction_date':
-          max_date,
-      'min_transaction_date':
-          min_date})
+      'number_of_rows': len(data),
+      'number_of_customers': data[customer_id_column].nunique(),
+      'number_of_transactions': len(data[data[value_column] > 0]),
+      'total_analysis_days': (max_date - min_date).days,
+      'number_of_days_with_data': data[date_column].nunique(),
+      'max_transaction_date': max_date,
+      'min_transaction_date': min_date})
 
   value_summary = data[value_column].describe()[1:].round(round_decimal_places)
   value_summary.index = [f'{value_column}_{statistic}' for statistic in
@@ -268,12 +266,6 @@ def build_train_query(
   if not window_date:
     window_date = (datetime.date.today() -
                    datetime.timedelta(days=days_lookback)).strftime('%Y-%m-%d')
-    logging.info('Using window date %r. This has been inferred based on'
-                 'the current date and the lookback window', window_date)
-    logging.info('Using a lookback window of %r days to create features',
-                 days_lookback)
-    logging.info('Using a lookahead window of %r days to predict value',
-                 days_lookahead)
 
   query_template_train = _read_file(_TRAIN_QUERY_TEMPLATE_FILES[query_type])
 

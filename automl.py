@@ -35,10 +35,11 @@ automl.train_automl_model(
 
 import logging
 import re
+from typing import List
 
 from google.cloud import aiplatform
 from google.cloud import bigquery
-
+import pandas as pd
 
 logging.getLogger().setLevel(logging.INFO)
 
@@ -224,3 +225,63 @@ def load_predictions_to_table(bigquery_client: bigquery.Client,
   FROM `{output_table}`
   """
   bigquery_client.query(query, location=location).result()
+
+
+def deploy_model(bigquery_client: bigquery.Client,
+                 model_id: str,
+                 machine_type: str = 'n1-standard-2',
+                 location: str = 'europe-west4') -> aiplatform.Model:
+  """Creates an endpoint and deploys Vertex AI Tabular AutoML model.
+
+  Args:
+    bigquery_client: BigQuery client.
+    model_id: The ID of the model e.g. '6314539258782679041'.
+    machine_type: The machine type to deploy to.
+    location: The location of the model.
+
+  Returns:
+    Deployed model object.
+  """
+
+  aiplatform.init(project=bigquery_client.project, location=location)
+
+  model = aiplatform.Model(model_name=model_id)
+
+  model.deploy(machine_type=machine_type)
+  model.wait()
+  logging.info('Deployed model with display name %r', model.display_name)
+  return model
+
+
+def predict_using_deployed_model(bigquery_client: bigquery.Client,
+                                 endpoint: str,
+                                 features: pd.DataFrame,
+                                 location: str = 'europe-west4') -> List[float]:
+  """Create predictions using a deployed model from a Pandas DataFrame.
+
+  Args:
+    bigquery_client: BigQuery client.
+    endpoint: The ID of the endpoint e.g. '4749679125759787009'.
+    features: The features to be used to create predictions.
+    location: The location of the model.
+
+  Returns:
+    Prediction values.
+  """
+
+  aiplatform.init(project=bigquery_client.project, location=location)
+
+  endpoint = aiplatform.Endpoint(endpoint)
+
+  # Ensure objects such as dates are strings and not datetime.
+  string_columns = features.select_dtypes(object).columns.to_list()
+  features[string_columns] = features[string_columns].astype(str)
+
+  # There seems to be a bug for recognising integers
+  # so we have to convert integer columns to strings.
+  integers = ['int16', 'int32', 'int64']
+  integer_columns = features.select_dtypes(include=integers).columns.to_list()
+  features[integer_columns] = features[integer_columns].astype(str)
+
+  response = endpoint.predict(instances=features.to_dict('records'))
+  return [record['value'] for record in response.predictions]
