@@ -71,6 +71,8 @@ def create_automl_dataset(
   Returns:
     The AI Platform AutoML dataset.
   """
+  logging.info('Creating Vertex AI Dataset with display name %r',
+               dataset_display_name)
   bigquery_uri = f'bq://{project_id}.{dataset_id}.{table_name}'
 
   aiplatform.init(project=project_id, location=location)
@@ -78,8 +80,6 @@ def create_automl_dataset(
       display_name=dataset_display_name, bq_source=bigquery_uri)
 
   dataset.wait()
-  logging.info('Created AI Platform Dataset with display name %r',
-               dataset_display_name)
   return dataset
 
 
@@ -123,6 +123,9 @@ def train_automl_model(
   Returns:
     Vertex AI AutoML model.
   """
+  logging.info('Creating Vertex AI AutoML model with display name %r',
+               model_display_name)
+
   transformations = [{'auto': {'column_name': f'{feature}'}}
                      for feature in aiplatform_dataset.column_names
                      if feature not in _NON_FEATURES]
@@ -151,7 +154,7 @@ def create_batch_predictions(
     project_id: str,
     dataset_id: str,
     table_name: str,
-    model_resource_name: str,
+    model_id: str,
     location: str) -> aiplatform.BatchPredictionJob:
   """Creates batch prediction job.
 
@@ -160,7 +163,7 @@ def create_batch_predictions(
     dataset_id: The Bigquery dataset_id containing the data to create
       predictions with.
     table_name: The table name containing the data to create predictions with.
-    model_resource_name: The name of the Vertex AI AutoML model.
+    model_id: The name of the Vertex AI AutoML model.
     location: The location of the Vertex AI AutoML model.
 
   Returns:
@@ -170,7 +173,7 @@ def create_batch_predictions(
 
   batch_prediction = aiplatform.BatchPredictionJob.create(
       job_display_name='crystalvalue_job',
-      model_name=model_resource_name,
+      model_name=model_id,
       bigquery_source=bigquery_uri,
       bigquery_destination_prefix=project_id,
       location=location)
@@ -199,7 +202,6 @@ def load_predictions_to_table(bigquery_client: bigquery.Client,
     destination_table: Table to load predictions to within the dataset_id.
     model_name: The name of the trained model.
   """
-
   output_dataset = re.findall('bq://(.*?)\"',
                               str(batch_predictions.output_info))[0]
   timestamp = output_dataset.split(model_name)[1]
@@ -283,5 +285,11 @@ def predict_using_deployed_model(bigquery_client: bigquery.Client,
   integer_columns = features.select_dtypes(include=integers).columns.to_list()
   features[integer_columns] = features[integer_columns].astype(str)
 
-  response = endpoint.predict(instances=features.to_dict('records'))
-  return [record['value'] for record in response.predictions]
+  # Gets around the 100 record prediction limit.
+  predictions = []
+  for i in range(0, len(features), 100):
+    response = endpoint.predict(
+        instances=features[i:(i+100)].to_dict('records'))
+    predictions.extend([record['value'] for record in response.predictions])
+  return predictions
+

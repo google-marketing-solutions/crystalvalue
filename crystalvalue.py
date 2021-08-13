@@ -49,7 +49,7 @@ summary_statistics = pipeline.run_data_checks(
 training_data_query = pipeline.feature_engineer(
     transaction_table_name='synthetic_data')
 
-# Creates AI Platform Dataset and trains AutoML model.
+# Creates AI Platform Dataset and trains AutoML model in your GCP.
 pipeline.train()
 
 # You can view your model training progress here:
@@ -61,12 +61,12 @@ pipeline.train()
 # You can also deploy your model to create fast predictions and to create
 # LTV model evaluation statistics.
 pipeline.deploy_model()
-pipeline.evaluate_model(endpoint='23554634534545')
+pipeline.evaluate_model()
 
 # Now create LTV predictions using the model and input data.
-pipeline.predict(
-  input_table_name='predict_data',
-  model_resource_name='5537281294968291328')
+pipeline.batch_predict(
+    input_table_name='prediction_data',
+    destination_table='predictions')
 
 """
 
@@ -107,6 +107,8 @@ class CrystalValue:
     days_lookback: The number of days to look back to create features.
     days_lookahead: The number of days to look ahead to predict value.
     model_id: The ID of the model that will be created.
+    endpoint_id: The ID of the endpoint that will be created for a deployed
+      model.
   """
   bigquery_client: bigquery.Client
   dataset_id: str
@@ -120,6 +122,7 @@ class CrystalValue:
   days_lookback: int = 365
   days_lookahead: int = 365
   model_id: str = None
+  endpoint_id: str = None
 
   def __post_init__(self):
     logging.info('Using Google Cloud Project: %r', self.bigquery_client.project)
@@ -167,7 +170,7 @@ class CrystalValue:
   def run_data_checks(self,
                       transaction_table_name: str,
                       round_decimal_places: int = 2,
-                      summary_table_name: str = 'summary_statistics'
+                      summary_table_name: str = 'crystalvalue_data_statistics'
                       ) -> pd.DataFrame:
     """Runs data checks on transaction data.
 
@@ -316,30 +319,31 @@ class CrystalValue:
         optimization_objective=optimization_objective,
         budget_milli_node_hours=budget_milli_node_hours,
         location=self.location)
-    self.model_id = model.display_name
+    self.model_id = model.name
     return model
 
-  def predict(self,
-              input_table_name: str,
-              model_resource_name: str,
-              model_name: str = 'crystalvalue_model',
-              destination_table: str = 'predictions'):
+  def batch_predict(self,
+                    input_table_name: str,
+                    model_id: Optional[str],
+                    model_name: str = 'crystalvalue_model',
+                    destination_table: str = 'crystalvalue_predictions'):
     """Creates predictions using Vertex AI model into destination table.
 
     Args:
       input_table_name: The table containing features to predict with.
-      model_resource_name: The resource name of the Vertex AI model e.g.
+      model_id: The resource name of the Vertex AI model e.g.
         '553728129496821'
       model_name: The name of the Vertex AI trained model e.g.
         'crystalvalue_model'.
       destination_table: The table to either create (if it doesn't exist) or
         append predictions to within your dataset.
     """
-
+    if not model_id:
+      model_id = self.model_id
     batch_predictions = automl.create_batch_predictions(
         project_id=self.bigquery_client.project,
         dataset_id=self.dataset_id,
-        model_resource_name=model_resource_name,
+        model_resource_name=model_id,
         table_name=input_table_name,
         location=self.location)
 
@@ -362,17 +366,20 @@ class CrystalValue:
     """
     if not model_id:
       model_id = self.model_id
-    return automl.deploy_model(
+    model = automl.deploy_model(
         self.bigquery_client, model_id, location=self.location)
+    self.endpoint_id = model.gca_resource.deployed_models[0].endpoint.split(
+        '/')[-1]
+    return model
 
   def evaluate_model(self,
-                     endpoint: str,
+                     endpoint_id: Optional[str],
                      table_evaluation_stats: str = 'crystalvalue_evaluation',
                      number_bins: int = 10) -> pd.DataFrame:
     """Creates a plot and Big Query table with evaluation metrics for LTV model.
 
     Args:
-      endpoint: The endpoint ID of the model.
+      endpoint_id: The endpoint ID of the model.
       table_evaluation_stats: Destination BigQuery Table to store model results.
       number_bins: Number of bins to split the LTV predictions into for
         evaluation. The default split is into deciles.
@@ -382,10 +389,12 @@ class CrystalValue:
       Normalized MAE and MAPE by
       decile along with Spearman and Normalized Gini Coefficient.
     """
+    if not endpoint_id:
+      endpoint_id = self.endpoint_id
     return model_evaluation.evaluate_model_predictions(
         bigquery_client=self.bigquery_client,
         dataset_id=self.dataset_id,
-        endpoint=endpoint,
+        endpoint=endpoint_id,
         model_id=self.model_id,
         table_evaluation_stats=table_evaluation_stats,
         location=self.location,
