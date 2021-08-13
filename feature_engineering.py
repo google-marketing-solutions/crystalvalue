@@ -100,14 +100,19 @@ def run_data_checks(
   """
   data = bigquery_client.query(query, location=location).result().to_dataframe()
 
-  max_date = datetime.datetime.strptime(data[date_column].max(), '%Y-%m-%d')
-  min_date = datetime.datetime.strptime(data[date_column].min(), '%Y-%m-%d')
+  max_date = pd.to_datetime(
+      data[date_column]).dt.date.max().strftime('%Y-%m-%d')
+  min_date = pd.to_datetime(
+      data[date_column]).dt.date.min().strftime('%Y-%m-%d')
+
+  max_date_strp = datetime.datetime.strptime(max_date, '%Y-%m-%d')
+  min_date_strp = datetime.datetime.strptime(min_date, '%Y-%m-%d')
 
   summary_data = pd.Series({
       'number_of_rows': len(data),
       'number_of_customers': data[customer_id_column].nunique(),
       'number_of_transactions': len(data[data[value_column] > 0]),
-      'total_analysis_days': (max_date - min_date).days,
+      'total_analysis_days': (max_date_strp - min_date_strp).days,
       'number_of_days_with_data': data[date_column].nunique(),
       'max_transaction_date': max_date,
       'min_transaction_date': min_date})
@@ -117,7 +122,7 @@ def run_data_checks(
                          value_summary.index.str.replace('%', '_quantile')]
 
   transactions_summary = data.groupby(
-      'customer_id').size().describe()[1:].round(round_decimal_places)
+      customer_id_column).size().describe()[1:].round(round_decimal_places)
   transactions_summary.index = [
       f'transactions_per_customer_{statistic}'
       for statistic in transactions_summary.index.str.replace('%', '_quantile')

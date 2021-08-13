@@ -53,7 +53,7 @@ WITH
       DATE_ADD(DateWindowsTable.window_date, INTERVAL 1 day) AS lookahead_start,
       DATE_ADD(DateWindowsTable.window_date, INTERVAL {days_lookahead} day) AS lookahead_stop,
       ROW_NUMBER()
-        OVER (PARTITION BY TX_DATA.{customer_id_column} ORDER BY RAND()) AS customer_window_number
+        OVER (PARTITION BY CAST(TX_DATA.{customer_id_column} AS STRING) ORDER BY RAND()) AS customer_window_number
     FROM {project_id}.{dataset_id}.{table_name} AS TX_DATA
     CROSS JOIN DateWindowsTable
   ),
