@@ -46,7 +46,7 @@ summary_statistics = pipeline.run_data_checks(
 # CrystalValue automatically detects data types and applies transformations.
 # CrystalValue by default will predict 1 year ahead using data
 # accumulated from 1 year before (configurable).
-training_data_query = pipeline.feature_engineer(
+training_data = pipeline.feature_engineer(
     transaction_table_name='synthetic_data')
 
 # Creates AI Platform Dataset and trains AutoML model in your GCP.
@@ -63,9 +63,14 @@ pipeline.train()
 pipeline.deploy_model()
 pipeline.evaluate_model()
 
+# Run feature engineering for the set of data you want to predict on.
+predict_features_data = pipeline.feature_engineer(
+    transaction_table_name='synthetic_data',
+    query_type='predict_query')
+
 # Now create LTV predictions using the model and input data.
 pipeline.batch_predict(
-    input_table_name='prediction_data',
+    input_table_name='predict_features_data',
     destination_table='predictions')
 
 """
@@ -92,6 +97,7 @@ class CrystalValue:
     bigquery_client: BigQuery client.
     dataset_id: The Bigquery dataset_id.
     training_table_name: The name of the training table to be created.
+    predict_table_name: The name of the prediction features table to be created.
     customer_id_column: The name of the customer id column.
     date_column: The name of the date column.
     value_column: The name of the future value column.
@@ -113,6 +119,7 @@ class CrystalValue:
   bigquery_client: bigquery.Client
   dataset_id: str
   training_table_name: str = 'training_data'
+  predict_table_name: str = 'predict_features_data'
   customer_id_column: str = 'customer_id'
   date_column: str = 'date'
   value_column: str = 'value'
@@ -198,8 +205,9 @@ class CrystalValue:
   def feature_engineer(
       self,
       transaction_table_name: str,
+      query_type: str = 'train_query',
       write_executed_query_file: Optional[str] = None) -> pd.DataFrame:
-    """Builds training data from transaction data through BigQuery.
+    """Builds train or predict query from transaction data through BigQuery.
 
     This function takes a transaction dataset (a BigQuery table that includes
     information about purchases) and creates a machine learning-ready dataset
@@ -210,6 +218,8 @@ class CrystalValue:
 
     Args:
       transaction_table_name: The Bigquery table name with transactions.
+      query_type: The query type. Has to be one of the keys in
+        feature_engineering._QUERY_TEMPLATE_FILES.
       write_executed_query_file: File path to write the generated SQL query.
 
     Returns:
@@ -232,7 +242,8 @@ class CrystalValue:
         for feature in self.features_types[feature_type]:
           logging.info('Detected %r feature %r', feature_type, feature)
 
-    query = feature_engineering.build_train_query(
+    query = feature_engineering.build_query(
+        query_type=query_type,
         bigquery_client=self.bigquery_client,
         dataset_id=self.dataset_id,
         transaction_table_name=transaction_table_name,
@@ -244,9 +255,15 @@ class CrystalValue:
         date_column=self.date_column,
         value_column=self.value_column)
 
-    return self.run_query(query_sql=query)
+    if query_type == 'train_query':
+      table_name = self.training_table_name
+    elif query_type == 'predict_query':
+      table_name = self.predict_table_name
+
+    return self.run_query(query_sql=query, destination_table_name=table_name)
 
   def run_query(self,
+                destination_table_name: str,
                 query_sql: Optional[str] = None,
                 query_file: Optional[str] = None) -> pd.DataFrame:
     """Runs a query in Bigquery either using a file or a query string.
@@ -254,6 +271,7 @@ class CrystalValue:
     One of query_sql or query_file must be provided.
 
     Args:
+      destination_table_name: Bigquery destination table name.
       query_sql: The SQL query to execute.
       query_file: Path to the SQL query to execute.
 
@@ -265,7 +283,7 @@ class CrystalValue:
         query_sql=query_sql,
         query_file=query_file,
         dataset_id=self.dataset_id,
-        destination_table_name=self.training_table_name,
+        destination_table_name=destination_table_name,
         location=self.location)
 
   def train(self,

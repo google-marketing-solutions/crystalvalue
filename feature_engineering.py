@@ -28,8 +28,9 @@ logging.getLogger().setLevel(logging.INFO)
 _NUMERICAL_TRANSFORMATIONS = frozenset(['AVG', 'MAX', 'MIN', 'SUM'])
 
 # SQL templates library
-_TRAIN_QUERY_TEMPLATE_FILES = {
-    'train_user_split': 'crystalvalue/sql_templates/train_user_split.sql'
+_QUERY_TEMPLATE_FILES = {
+    'train_query': 'crystalvalue/sql_templates/train_query.sql',
+    'predict_query': 'crystalvalue/sql_templates/predict_query.sql',
 }
 
 
@@ -199,12 +200,12 @@ def _write_file(query: str, file_name: str) -> None:
     f.write(query)
 
 
-def build_train_query(
+def build_query(
     bigquery_client: bigquery.Client,
     dataset_id: str,
     transaction_table_name: str,
     features_types: Mapping[str, List[str]],
-    query_type: str = 'train_user_split',
+    query_type: str = 'train_query',
     numerical_transformations: Collection[str] = _NUMERICAL_TRANSFORMATIONS,
     write_executed_query_file: Optional[str] = None,
     days_lookback: int = 365,
@@ -212,16 +213,15 @@ def build_train_query(
     customer_id_column: str = 'customer_id',
     date_column: str = 'date',
     value_column: str = 'value') -> str:
-  """Builds training data from transaction data through BigQuery.
+  """Builds training or prediction query from transaction data through BigQuery.
 
   This function takes a transaction dataset (a BigQuery table that includes
   information about purchases) and creates an SQL query to generate a machine
-  learning-ready dataset that can be ingested by AutoML. The SQL query can be
+  learning-ready dataset that can be ingested by AutoML either for training
+  or prediction (determined by the parameter `query_type`. The SQL query can be
   written to the file path `write_executed_query_file` for manual modifications.
   Data types will be automatically detected from the BigQuery schema if
-  `features_types` argument is not provided. Columns can be REPEATED, however
-  note
-  that RECORD type (i.e. SQL STRUCT type) is currently not supported.
+  `features_types` argument is not provided.
 
   Args:
     bigquery_client: BigQuery client.
@@ -229,7 +229,7 @@ def build_train_query(
     transaction_table_name: The Bigquery table name with transactions.
     features_types: The mapping of feature types to feature names.
     query_type: The query type. Has to be one of the keys in
-      _TRAIN_QUERY_TEMPLATE_FILES. See README for more information.
+      _QUERY_TEMPLATE_FILES.
     numerical_transformations: The types of transformations for numerical
       features.
     write_executed_query_file: File path to write the generated SQL query.
@@ -242,9 +242,9 @@ def build_train_query(
   Returns:
     The SQL script to generate training data ready for machine learning.
   """
-  if query_type not in _TRAIN_QUERY_TEMPLATE_FILES:
+  if query_type not in _QUERY_TEMPLATE_FILES:
     raise ValueError(
-        f'{query_type} not one of {_TRAIN_QUERY_TEMPLATE_FILES.keys()}')
+        f'{query_type} not one of {_QUERY_TEMPLATE_FILES.keys()}')
 
   features_list = []
   if 'numeric' in features_types:
@@ -264,9 +264,9 @@ def build_train_query(
       features_list.append(f'TRIM(STRING_AGG(DISTINCT {feature}, " " ORDER BY '
                            f'{feature})) AS {feature}')
 
-  query_template_train = _read_file(_TRAIN_QUERY_TEMPLATE_FILES[query_type])
+  query_template = _read_file(_QUERY_TEMPLATE_FILES[query_type])
 
-  substituted_query = query_template_train.format(
+  substituted_query = query_template.format(
       project_id=bigquery_client.project,
       dataset_id=dataset_id,
       table_name=transaction_table_name,

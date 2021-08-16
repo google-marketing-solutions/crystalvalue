@@ -40,7 +40,7 @@ class FeatureEngineeringTest(unittest.TestCase):
 
   def test_build_train_query_reads_query(self):
 
-    feature_engineering.build_train_query(
+    feature_engineering.build_query(
         bigquery_client=self.mock_client,
         dataset_id=self.dataset_id,
         transaction_table_name=self.transaction_table_name,
