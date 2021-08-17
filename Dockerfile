@@ -12,15 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-google-cloud-aiplatform>=1.1.1
-google-cloud-bigquery>=2.20.0
-pandas>=1.2.5
-numpy>=1.21.0
-scipy>=1.7.0
-kfp>=1.7.0
-google-cloud-pipeline-components>=0.1.4
-matplotlib>=3.4.3
-scipy>=1.7.1
-seaborn>=0.11.2
-sklearn
+FROM python:3.7
 
+COPY crystalvalue ./crystalvalue
+
+RUN pip install -r crystalvalue/requirements.txt

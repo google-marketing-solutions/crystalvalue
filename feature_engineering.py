@@ -114,7 +114,8 @@ def run_data_checks(
       'number_of_customers': data[customer_id_column].nunique(),
       'number_of_transactions': len(data[data[value_column] > 0]),
       'total_analysis_days': (max_date_strp - min_date_strp).days,
-      'number_of_days_with_data': data[date_column].nunique(),
+      'number_of_days_with_data': pd.to_datetime(
+          data[date_column]).dt.date.nunique(),
       'max_transaction_date': max_date,
       'min_transaction_date': min_date})
 
