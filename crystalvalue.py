@@ -342,7 +342,7 @@ class CrystalValue:
 
   def batch_predict(self,
                     input_table_name: str,
-                    model_id: Optional[str],
+                    model_id: Optional[str] = None,
                     model_name: str = 'crystalvalue_model',
                     destination_table: str = 'crystalvalue_predictions'):
     """Creates predictions using Vertex AI model into destination table.
@@ -361,7 +361,7 @@ class CrystalValue:
     batch_predictions = automl.create_batch_predictions(
         project_id=self.bigquery_client.project,
         dataset_id=self.dataset_id,
-        model_resource_name=model_id,
+        model_id=model_id,
         table_name=input_table_name,
         location=self.location)
 
@@ -386,12 +386,13 @@ class CrystalValue:
       model_id = self.model_id
     model = automl.deploy_model(
         self.bigquery_client, model_id, location=self.location)
+    model.wait()
     self.endpoint_id = model.gca_resource.deployed_models[0].endpoint.split(
         '/')[-1]
     return model
 
   def evaluate_model(self,
-                     endpoint_id: Optional[str],
+                     endpoint_id: Optional[str] = None,
                      table_evaluation_stats: str = 'crystalvalue_evaluation',
                      number_bins: int = 10) -> pd.DataFrame:
     """Creates a plot and Big Query table with evaluation metrics for LTV model.
