@@ -18,6 +18,7 @@ import logging
 from typing import Collection, Dict, List, Mapping, Optional
 
 from google.cloud import bigquery
+import numpy as np
 import pandas as pd
 
 
@@ -93,31 +94,73 @@ def run_data_checks(
   """
 
   query = f"""
+  WITH base_table AS (
+    SELECT
+      {customer_id_column},
+      {date_column},
+      DATE_ADD(DATE({date_column}), INTERVAL 1 day) AS lookahead_start,
+      DATE_ADD(DATE({date_column}), INTERVAL {days_lookahead} day) AS lookahead_stop,
+      {value_column}
+    FROM
+      {bigquery_client.project}.{dataset_id}.{table_name}
+  ),
+
+  customer_dates AS (
+    SELECT DISTINCT
+      {customer_id_column},
+      {date_column}
+    FROM
+      {bigquery_client.project}.{dataset_id}.{table_name}
+  )
+
   SELECT
-    {customer_id_column},
-    {date_column},
-    {value_column}
-  FROM {bigquery_client.project}.{dataset_id}.{table_name}
+    base_table.*,
+    COUNT(DISTINCT customer_dates.{date_column}) AS future_purchase_dates
+  FROM
+    base_table
+  LEFT JOIN
+    customer_dates
+  ON (
+    base_table.{customer_id_column} = customer_dates.{customer_id_column}
+    AND DATE(customer_dates.{date_column}) BETWEEN base_table.lookahead_start AND base_table.lookahead_stop)
+  GROUP BY 1,2,3,4,5
   """
   data = bigquery_client.query(query, location=location).result().to_dataframe()
 
-  max_date = pd.to_datetime(
-      data[date_column]).dt.date.max().strftime('%Y-%m-%d')
-  min_date = pd.to_datetime(
-      data[date_column]).dt.date.min().strftime('%Y-%m-%d')
+  data[date_column] = pd.to_datetime(data[date_column]).dt.date
+  max_date = data[date_column].max()
+  min_date = data[date_column].min()
 
-  max_date_strp = datetime.datetime.strptime(max_date, '%Y-%m-%d')
-  min_date_strp = datetime.datetime.strptime(min_date, '%Y-%m-%d')
+  last_day_with_lookahead = data[date_column].max() - datetime.timedelta(
+      days=days_lookahead)
+  data_with_lookahead = data[data[date_column] <= last_day_with_lookahead]
+  lookahead_customer_return_rate = data_with_lookahead[
+      'future_purchase_dates'].astype(bool).mean()
+  lookahead_customer_mean_returns = data_with_lookahead[
+      'future_purchase_dates'].mean()
+  lookahead_customer_conditional_mean_returns = data_with_lookahead.loc[
+      data_with_lookahead['future_purchase_dates'] > 0,
+      'future_purchase_dates'].mean()
 
   summary_data = pd.Series({
       'number_of_rows': len(data),
       'number_of_customers': data[customer_id_column].nunique(),
       'number_of_transactions': len(data[data[value_column] > 0]),
-      'total_analysis_days': (max_date_strp - min_date_strp).days,
-      'number_of_days_with_data': pd.to_datetime(
-          data[date_column]).dt.date.nunique(),
-      'max_transaction_date': max_date,
-      'min_transaction_date': min_date})
+      'total_analysis_days': (max_date - min_date).days,
+      'number_of_days_with_data':
+          data[date_column].nunique(),
+      'max_transaction_date':
+          max_date.strftime('%Y-%m-%d'),
+      'min_transaction_date':
+          min_date.strftime('%Y-%m-%d'),
+      'lookahead_customer_return_rate':
+          np.round(lookahead_customer_return_rate, round_decimal_places),
+      'lookahead_customer_mean_returns':
+          np.round(lookahead_customer_mean_returns, round_decimal_places),
+      'lookahead_customer_conditional_mean_returns':
+          np.round(lookahead_customer_conditional_mean_returns,
+                   round_decimal_places)
+  })
 
   value_summary = data[value_column].describe()[1:].round(round_decimal_places)
   value_summary.index = [f'{value_column}_{statistic}' for statistic in
@@ -129,6 +172,7 @@ def run_data_checks(
       f'transactions_per_customer_{statistic}'
       for statistic in transactions_summary.index.str.replace('%', '_quantile')
   ]
+
   summary_data = pd.concat([summary_data, value_summary, transactions_summary])
 
   if summary_data['number_of_rows'] < 1000:

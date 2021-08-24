@@ -13,7 +13,7 @@ Head over to the demo notebook at **crystalvalue_demo_notebook.ipynb** to run th
 
 ## Solution description
 
-Crystalvalue carrys out the key steps for building and maintaining LTV models. It is a python library that is designed to be run in a [Google Cloud Notebook](https://cloud.google.com/vertex-ai/docs/general/notebooks) within an advertiser's Google Cloud Platform. See crystalvalue_demo_notebook.ipynb which presents a demo that walks users through the LTV steps, from feature engineering to scheduling predictions programmatically.
+Crystalvalue carrys out the key steps for building and maintaining LTV models. It is a python library that is designed to be run in a [Google Cloud Notebook](https://cloud.google.com/vertex-ai/docs/general/notebooks) within an advertiser's Google Cloud Platform. 
 
 The steps in the Crystalvalue LTV process are outlined below and are set out in Figure 1.
 
@@ -22,7 +22,7 @@ The steps in the Crystalvalue LTV process are outlined below and are set out in 
 ![Crystalval](https://screenshot.googleplex.com/8UnbsrpZwYByFVb.png)
 
 * **Data cleaning**. Crystalvalue takes in a dataset (e.g. data from Google Analytics or a CRM transaction dataset) and performs automated data checks. It will output a table in your Bigquery dataset with key statistics: # customers, # transactions, distribution of prices, distribution of transactions per customer. These statistics can be used to determine whether any data cleaning routines should be implemented (e.g. remove negative prices or outliers).
-* **Build ML data.** Crystalvalue takes in a dataset (e.g. data from Google Analytics or a CRM transaction dataset) and outputs an ML ready dataset. For model training, this consists of a set of features and targets. For prediciton, this is just a set of features. See Figure 2 to see what this looks like in practice. The same customer can be observed multiple times during different time windows for model training using monthly ‘sliding windows’. Crystalvalue can automatically detect data types from the input data and apply the appropriate feature transformations. See Figure 3 for the typical features and transformations that can be used in LTV models. The processing is programmatically executed in the python Bigquery API under-the-hood for efficiency. This step also creates a column which assigns customers to a training, validation and test set (split with random 15% of users as test, 15% in validation and 70% in training). Crystalvalue sets recommended default parameters which can be configured:
+* **Build ML data.** Crystalvalue takes in a dataset (e.g. data from Google Analytics or a CRM transaction dataset) and outputs an ML ready dataset. For model training, this consists of a set of features and targets. For prediciton, this is just a set of features. See Figure 2 to see what this looks like in practice. The same customer can be observed multiple times during different time windows for model training using monthly ‘sliding windows’. Crystalvalue can automatically detect data types from the input data and apply the appropriate feature transformations. See Figure 3 for the typical features and transformations that can be used in LTV models. Crystalvalue will take all the data present in the input table and create features (unless the columns are included in the `ignore_features` argument. The processing is programmatically executed in the python Bigquery API under-the-hood for efficiency. This step also creates a column which assigns customers to a training, validation and test set (split with random 15% of users as test, 15% in validation and 70% in training). Crystalvalue sets recommended default parameters which can be configured:
   *  days_lookback: # days to look back to create features (default: 365 days).
   *  days_lookahead: # days to look ahead to predict value (default: 365 days).
   *  features: Input data columns types (default: None, detected automatically).
@@ -31,14 +31,14 @@ The steps in the Crystalvalue LTV process are outlined below and are set out in 
   *  value_column: The value column (i.e. transaction revenue/profit).
   *  ignore_columns: Columns to ignore in this step.
 
-**Figure 2**
+  **Figure 2**
 
-![Crystalval](https://screenshot.googleplex.com/645o76szJkYPVZg.png)
+  ![Crystalval](https://screenshot.googleplex.com/645o76szJkYPVZg.png)
 
 
-**Figure 3**
+  **Figure 3**
 
-![Crystalval](https://screenshot.googleplex.com/64VJyTq9WiU6Fpp.png)
+  ![Crystalval](https://screenshot.googleplex.com/64VJyTq9WiU6Fpp.png)
 
 * **Model Training**. Crystalvalue will programmatically train a Vertex AI Tabular AutoML model which will then be visible in the [Vertex AI dashboard](https://console.cloud.google.com/vertex-ai).
 
