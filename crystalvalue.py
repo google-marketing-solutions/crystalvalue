@@ -118,8 +118,8 @@ class CrystalValue:
   """
   bigquery_client: bigquery.Client
   dataset_id: str
-  training_table_name: str = 'training_data'
-  predict_table_name: str = 'predict_features_data'
+  training_table_name: str = 'crystalvalue_train_data'
+  predict_table_name: str = 'crystalvalue_predict_data'
   customer_id_column: str = 'customer_id'
   date_column: str = 'date'
   value_column: str = 'value'
