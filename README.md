@@ -30,8 +30,8 @@ The steps in the Crystalvalue LTV process are outlined below and are set out in 
   ![Crystalval](https://screenshot.googleplex.com/4xGe5uQ4z7jQMEZ.png)
 
 * **Data cleaning**. Crystalvalue takes in a BigQuery table (e.g. data from Google Analytics or a CRM transaction dataset) and performs automated data checks. It will also output a table in your Bigquery dataset (default name: `crystalvalue_data_statistics`) with important statistics to help the user decide whether data cleaning is necessary (i.e. negative prices, extreme outliers):
-  * # customers
-  * # transactions
+  * number of customers
+  * number of transactions
   * total analysis days and the number of dates with transactions
   * minimum and maximum transaction dates
   * lookahead return rate (i.e. the rate at which customer come back in the lookahead period)
@@ -77,7 +77,7 @@ The steps in the Crystalvalue LTV process are outlined below and are set out in 
 
 * **Customer insights.** (WIP) Crystalvalue will connect your trained model to the What IF tool (see an [example here](https://pair-code.github.io/what-if-tool/demos/age.html)) which can help you understand the characteristics of your high LTV customers.
 
-* **Predictions & Scheduling.** Crystalvalue will provide you the option to schedule your predictions using the model on a regular basis using Vertex Pipelines from within the Notebook. See the example in the demo notebook which schedules predictions for 1am everyday. Once the schedule is set up, it will be visible in [Vertex Pipelines](https://cloud.google.com/vertex-ai/docs/pipelines/introduction).
+* **Predictions & Scheduling.** The model will make predictions for all the customers in the input table that have any activity during the lookback window. The pLTV predictions will be for the period from the last date in the input table (which is the start of the lookahead window) until the length of the lookahead window after the last date in the input table. Crystalvalue will provide you the option to schedule your predictions using the model on a regular basis using Vertex Pipelines from within the Notebook. See the example in the demo notebook which schedules predictions for 1am everyday. Once the schedule is set up, it will be visible in [Vertex Pipelines](https://cloud.google.com/vertex-ai/docs/pipelines/introduction).
 
 
 ## Requirements

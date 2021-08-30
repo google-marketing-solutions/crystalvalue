@@ -133,15 +133,15 @@ def evaluate_model_predictions(
     dataset_id: str,
     endpoint: str,
     model_id: str,
-    training_data_name: str = 'training_data',
+    training_data_name: str = 'crystalvalue_train_data',
     table_evaluation_stats: str = 'test_set_evaluation',
     location: str = 'europe-west4',
     number_bins: int = 10,
     round_decimal_places: int = 2) -> pd.DataFrame:
   """Creates a plot and BigQuery table with evaluation metrics for LTV model.
 
-  This function creates plots and a table with date of running, model name and
-  bin level average predicted and actual LTV,Spearman Rank Correlation,
+  This function creates plots and a table with date of running, model id and
+  bin level average predicted and actual LTV, Spearman Rank Correlation,
   Normalized Gini coefficient for the model.
   To ensure consistency and comparision across model runs, these outputs are
   sent to a Big Query table that can capture changes in model performance over
@@ -195,15 +195,16 @@ def evaluate_model_predictions(
       number_bins,
       labels=np.arange(number_bins, 0, -1)).astype(int)
 
-  bin_revenue_shares = pd.DataFrame().append(
+  revenue_shares = pd.DataFrame().append(
       pd.Series(dtype='object'), ignore_index=True)
   total_value = data['future_value'].sum()
-  for i in range(1, (number_bins + 1)):
-    step = int(100 * (i * (1 / number_bins)))
-    bin_revenue_shares[
-        f'top_{step}_percent_predicted_customers_value_share'] = np.divide(
-            data.loc[data['bin'] <= i, 'future_value'].sum(), total_value)
-  bin_revenue_shares = bin_revenue_shares.round(round_decimal_places)
+  data = data.sort_values('predicted_value', ascending=False)
+  for i in [0.01, 0.05, 0.10]:
+    number_of_rows = int(i * len(data))
+    revenue_shares[
+        f'top_{int(i * 100)}_percent_predicted_customers_value_share'] = np.divide(
+            data[:number_of_rows]['future_value'].sum(), total_value)
+  revenue_shares = revenue_shares.round(round_decimal_places)
 
   bin_summary = data.groupby('bin')[['predicted_value', 'future_value'
                                     ]].mean().round(round_decimal_places)
@@ -214,12 +215,13 @@ def evaluate_model_predictions(
   model_summary_statistics = pd.DataFrame.from_records([{
       'time_run': pd.to_datetime('now').strftime('%d/%m/%Y %H:%M:%S'),
       'model_id': model_id,
+      'test_set_rows': len(data),
       'spearman_correlation': spearman_correlation,
       'gini_normalized': gini_normalized,
       'normalised_mae': normalised_mae
   }])
   model_summary_statistics = pd.concat(
-      [model_summary_statistics, bin_revenue_shares], axis=1)
+      [model_summary_statistics, revenue_shares], axis=1)
 
   feature_engineering.run_load_table_to_bigquery(
       data=model_summary_statistics,

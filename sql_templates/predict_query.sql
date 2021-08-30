@@ -21,17 +21,21 @@
 -- @param features_sql STRING The SQL for the features and transformations.
 
 WITH
+  WindowDate AS (
+    SELECT DATE(MAX({date_column})) as date
+    FROM {project_id}.{dataset_id}.{table_name}
+  ),
   CustomerWindows AS (
     SELECT
-      TX_DATA.{customer_id_column} AS customer_id,
-      DATE(MAX({date_column})) AS window_date,
-      DATE_SUB(DATE(MAX({date_column})), INTERVAL {days_lookback} day) AS lookback_start,
-      DATE_ADD(DATE(MAX({date_column})), INTERVAL 1 day) AS lookahead_start,
-      DATE_ADD(DATE(MAX({date_column})), INTERVAL {days_lookahead} day) AS lookahead_stop
+      CAST(TX_DATA.{customer_id_column} AS STRING) AS customer_id,
+      WindowDate.date AS window_date,
+      DATE_SUB((WindowDate.date), INTERVAL {days_lookback} day) AS lookback_start,
+      DATE_ADD((WindowDate.date), INTERVAL 1 day) AS lookahead_start,
+      DATE_ADD((WindowDate.date), INTERVAL {days_lookahead} day) AS lookahead_stop
     FROM {project_id}.{dataset_id}.{table_name} AS TX_DATA
-    GROUP BY 1
+    CROSS JOIN WindowDate
+    GROUP BY 1, 2, 3, 4
   )
-
 SELECT
   CustomerWindows.*,
   IFNULL(
@@ -47,7 +51,9 @@ FROM
 JOIN
   {project_id}.{dataset_id}.{table_name} AS TX_DATA
   ON (
-    TX_DATA.{customer_id_column} = CustomerWindows.customer_id
-    AND DATE(TX_DATA.{date_column}) BETWEEN CustomerWindows.lookback_start AND DATE(CustomerWindows.window_date))
+    CAST(TX_DATA.{customer_id_column} AS STRING) = CustomerWindows.customer_id
+    AND DATE(TX_DATA.{date_column})
+      BETWEEN CustomerWindows.lookback_start
+      AND DATE(CustomerWindows.window_date))
 GROUP BY
   1, 2, 3, 4, 5;

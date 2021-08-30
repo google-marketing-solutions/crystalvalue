@@ -47,7 +47,7 @@ WITH
   ),
   CustomerWindows AS (
     SELECT DISTINCT
-      TX_DATA.customer_id AS customer_id,
+      CAST(TX_DATA.customer_id AS STRING) AS customer_id,
       DateWindowsTable.window_date AS window_date,
       DATE_SUB(DateWindowsTable.window_date, INTERVAL 365 day) AS lookback_start,
       DATE_ADD(DateWindowsTable.window_date, INTERVAL 1 day) AS lookahead_start,
@@ -66,7 +66,7 @@ WITH
     LEFT JOIN
       my_project.my_dataset.my_table AS TX_DATA
       ON (
-        TX_DATA.customer_id = CustomerWindows.customer_id
+        CAST(TX_DATA.customer_id AS STRING) = CustomerWindows.customer_id
         AND DATE(TX_DATA.date)
           BETWEEN CustomerWindows.lookahead_start
           AND CustomerWindows.lookahead_stop)
@@ -121,7 +121,7 @@ FROM
 JOIN
   my_project.my_dataset.my_table AS TX_DATA
   ON (
-    TX_DATA.customer_id = Target.customer_id
+    CAST(TX_DATA.customer_id AS STRING) = Target.customer_id
     AND DATE(TX_DATA.date) BETWEEN Target.lookback_start AND DATE(Target.window_date))
 WHERE Target.customer_window_number <= 10
 GROUP BY

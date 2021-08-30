@@ -81,6 +81,7 @@ from typing import Collection, List, Mapping, Optional
 from absl import logging
 from google.cloud import aiplatform
 from google.cloud import bigquery
+from google.cloud.exceptions import NotFound
 import pandas as pd
 
 from crystalvalue import automl
@@ -373,6 +374,68 @@ class CrystalValue:
         destination_table=destination_table,
         model_name=model_name)
 
+  def predict(self,
+              input_table: pd.DataFrame,
+              model_id: Optional[str] = None,
+              endpoint_id: Optional[str] = None,
+              destination_table: str = 'crystalvalue_predictions',
+              round_decimal_places: int = 2):
+    """Creates predictions using Vertex AI model into destination table.
+
+    Args:
+      input_table: The table containing features to predict with.
+      model_id: The resource name of the Vertex AI model e.g.
+        '553728129496821'
+      endpoint_id: The endpoint ID of the model. If not specified, it will be
+        found using the model_id.
+      destination_table: The table to either create (if it doesn't exist) or
+        append predictions to within your dataset.
+      round_decimal_places: How many decimal places to round to.
+
+    Returns:
+      Predictions
+    """
+    if not model_id:
+      if not self.model_id:
+        raise ValueError('model_id is required for prediction.')
+      model_id = self.model_id
+    if not endpoint_id:
+      if not self.endpoint_id:
+        model = aiplatform.Model(model_id, location=self.location)
+        endpoint_id = model.gca_resource.deployed_models[0].endpoint.split(
+            '/')[-1]
+
+    input_table['predicted_value'] = automl.predict_using_deployed_model(
+        bigquery_client=self.bigquery_client,
+        endpoint=endpoint_id,
+        features=input_table,
+        location=self.location).round(round_decimal_places)
+
+    output = input_table[[
+        'customer_id',
+        'lookahead_start',
+        'lookahead_stop',
+        'predicted_value']]
+
+    table_id = f'{self.bigquery_client.project}.{self.dataset_id}.{destination_table}'
+    try:
+      self.bigquery_client.get_table(table_id)
+      job_config = bigquery.job.LoadJobConfig(
+          write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
+      logging.info('Appending to table %r in location %r', table_id,
+                   self.location)
+    except NotFound:
+      job_config = bigquery.job.LoadJobConfig(
+          write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
+      logging.info('Creating table %r in location %r', table_id, self.location)
+
+    self.bigquery_client.load_table_from_dataframe(
+        dataframe=output,
+        destination=table_id,
+        job_config=job_config,
+        location=self.location).result()
+    return output
+
   def deploy_model(self, model_id: Optional[str] = None) -> aiplatform.Model:
     """Creates an endpoint and deploys Vertex AI Tabular AutoML model.
 
@@ -387,29 +450,39 @@ class CrystalValue:
     model = automl.deploy_model(
         self.bigquery_client, model_id, location=self.location)
     model.wait()
-    self.endpoint_id = model.gca_resource.deployed_models[0].endpoint.split(
-        '/')[-1]
     return model
 
   def evaluate_model(self,
+                     model_id: Optional[str] = None,
                      endpoint_id: Optional[str] = None,
                      table_evaluation_stats: str = 'crystalvalue_evaluation',
                      number_bins: int = 10) -> pd.DataFrame:
     """Creates a plot and Big Query table with evaluation metrics for LTV model.
 
     Args:
-      endpoint_id: The endpoint ID of the model.
+      model_id: The resource name of the Vertex AI model e.g.
+        '553728129496821'.
+      endpoint_id: The endpoint ID of the model. If not specified, it will be
+        found using the model_id.
       table_evaluation_stats: Destination BigQuery Table to store model results.
       number_bins: Number of bins to split the LTV predictions into for
         evaluation. The default split is into deciles.
 
     Returns:
-      Dataframe with details of model and average predicted and actual LTV,
-      Normalized MAE and MAPE by
-      decile along with Spearman and Normalized Gini Coefficient.
+      Model evaluation metrics on the test set.
+
+    Raises:
+      ValueError if no model_id is specified.
     """
+    if not model_id:
+      if not self.model_id:
+        raise ValueError('model_id is required for prediction.')
+      model_id = self.model_id
     if not endpoint_id:
-      endpoint_id = self.endpoint_id
+      if not self.endpoint_id:
+        model = aiplatform.Model(model_id, location=self.location)
+        endpoint_id = model.gca_resource.deployed_models[0].endpoint.split(
+            '/')[-1]
     return model_evaluation.evaluate_model_predictions(
         bigquery_client=self.bigquery_client,
         dataset_id=self.dataset_id,

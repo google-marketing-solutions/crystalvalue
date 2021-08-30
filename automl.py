@@ -244,11 +244,8 @@ def deploy_model(bigquery_client: bigquery.Client,
   Returns:
     Deployed model object.
   """
-
   aiplatform.init(project=bigquery_client.project, location=location)
-
   model = aiplatform.Model(model_name=model_id)
-
   model.deploy(machine_type=machine_type)
   model.wait()
   logging.info('Deployed model with display name %r', model.display_name)
@@ -272,7 +269,6 @@ def predict_using_deployed_model(bigquery_client: bigquery.Client,
   """
 
   aiplatform.init(project=bigquery_client.project, location=location)
-
   endpoint = aiplatform.Endpoint(endpoint)
 
   # Ensure objects such as dates are strings and not datetime.
