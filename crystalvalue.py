@@ -76,7 +76,8 @@ pipeline.batch_predict(
 """
 
 import dataclasses
-from typing import Collection, List, Mapping, Optional
+import json
+from typing import Collection, Dict, List, Mapping, Optional
 
 from absl import logging
 from google.cloud import aiplatform
@@ -88,6 +89,14 @@ from crystalvalue import automl
 from crystalvalue import feature_engineering
 from crystalvalue import model_evaluation
 from crystalvalue import synthetic_data
+
+
+def load_parameters_from_file(
+    filename: str = 'crystalvalue_parameters.json') -> Dict[str, str]:
+  """Reads parameters from local file."""
+  logging.info('Reading parameters from file %r', filename)
+  with open(filename) as f:
+    return json.load(f)
 
 
 @dataclasses.dataclass
@@ -116,6 +125,8 @@ class CrystalValue:
     model_id: The ID of the model that will be created.
     endpoint_id: The ID of the endpoint that will be created for a deployed
       model.
+    write_parameters: Whether to write input parameter to file.
+    parameters_filename: The file path to write crystalvalue parameters to.
   """
   bigquery_client: bigquery.Client
   dataset_id: str
@@ -131,6 +142,8 @@ class CrystalValue:
   days_lookahead: int = 365
   model_id: str = None
   endpoint_id: str = None
+  write_parameters: bool = False
+  parameters_filename: str = 'crystalvalue_parameters.json'
 
   def __post_init__(self):
     logging.info('Using Google Cloud Project: %r', self.bigquery_client.project)
@@ -144,6 +157,26 @@ class CrystalValue:
                  self.days_lookback)
     logging.info('Using days_lookahead for value prediction: %r',
                  self.days_lookahead)
+    if self.write_parameters:
+      self._write_parameters_to_file()
+
+  def _write_parameters_to_file(self) -> None:
+    """Writes parameters to file."""
+    parameters = {
+        'dataset_id': self.dataset_id,
+        'customer_id_column': self.customer_id_column,
+        'date_column': self.date_column,
+        'value_column': self.value_column,
+        'ignore_columns': self.ignore_columns,
+        'location': self.location,
+        'model_id': self.model_id,
+        'days_lookback': self.days_lookback,
+        'days_lookahead': self.days_lookahead
+    }
+    with open(self.parameters_filename, 'w') as f:
+      json.dump(parameters, f)
+    logging.info('Parameters writen to file: %r',
+                 self.parameters_filename)
 
   def create_synthetic_data(self,
                             table_name: str = 'synthetic_data',
@@ -339,6 +372,7 @@ class CrystalValue:
         budget_milli_node_hours=budget_milli_node_hours,
         location=self.location)
     self.model_id = model.name
+    self._write_parameters_to_file()
     return model
 
   def batch_predict(self,
@@ -379,13 +413,13 @@ class CrystalValue:
               model_id: Optional[str] = None,
               endpoint_id: Optional[str] = None,
               destination_table: str = 'crystalvalue_predictions',
-              round_decimal_places: int = 2):
+              round_decimal_places: int = 2) -> pd.DataFrame:
     """Creates predictions using Vertex AI model into destination table.
 
     Args:
       input_table: The table containing features to predict with.
       model_id: The resource name of the Vertex AI model e.g.
-        '553728129496821'
+        '553728129496821'.
       endpoint_id: The endpoint ID of the model. If not specified, it will be
         found using the model_id.
       destination_table: The table to either create (if it doesn't exist) or
@@ -393,7 +427,7 @@ class CrystalValue:
       round_decimal_places: How many decimal places to round to.
 
     Returns:
-      Predictions
+      Predictions.
     """
     if not model_id:
       if not self.model_id:
@@ -491,3 +525,9 @@ class CrystalValue:
         table_evaluation_stats=table_evaluation_stats,
         location=self.location,
         number_bins=number_bins)
+
+  def delete_table(self, table_name: str) -> None:
+    """Deletes a Bigquery table."""
+    table_id = f'{self.bigquery_client.project}.{self.dataset_id}.{table_name}'
+    self.bigquery_client.delete_table(table_id, not_found_ok=True)
+    logging.info('Deleted table %r', table_id)
