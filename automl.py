@@ -286,6 +286,11 @@ def predict_using_deployed_model(bigquery_client: bigquery.Client,
   for i in range(0, len(features), 100):
     response = endpoint.predict(
         instances=features[i:(i+100)].to_dict('records'))
-    predictions.extend([record['value'] for record in response.predictions])
+    if isinstance(response.predictions, list) and isinstance(
+        response.predictions[0], float):
+      predictions.extend(response.predictions)
+    else:
+      predictions.extend([record['value'] for record in response.predictions])
+
   return predictions
 

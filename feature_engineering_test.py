@@ -36,7 +36,7 @@ class FeatureEngineeringTest(unittest.TestCase):
     self.read_query_file = 'query.txt'
     self.transaction_table_name = 'test_transaction_table_name'
     self.destination_table_name = 'test_destination_table_name'
-    self.features_types = {'numerical': 'numerical_column'}
+    self.input_data_types = {'numerical': 'numerical_column'}
 
   def test_build_train_query_reads_query(self):
 
@@ -44,7 +44,7 @@ class FeatureEngineeringTest(unittest.TestCase):
         bigquery_client=self.mock_client,
         dataset_id=self.dataset_id,
         transaction_table_name=self.transaction_table_name,
-        features_types=self.features_types)
+        input_data_types=self.input_data_types)
 
     self.mock_read.assert_called_once()
 

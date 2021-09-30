@@ -13,9 +13,10 @@
 # limitations under the License.
 """Module for feature engineering via BigQuery for crystalvalue pipeline."""
 
+import collections
 import datetime
 import logging
-from typing import Collection, Dict, List, Mapping, Optional
+from typing import Collection, Dict, List, Mapping, Optional, Tuple
 
 from google.cloud import bigquery
 import numpy as np
@@ -33,6 +34,9 @@ _QUERY_TEMPLATE_FILES = {
     'train_query': 'crystalvalue/sql_templates/train_query.sql',
     'predict_query': 'crystalvalue/sql_templates/predict_query.sql',
 }
+_STATIC_NUMERIC_FEATURES = ('days_since_last_transaction',
+                            'days_since_first_transaction',
+                            'count_transactions')
 
 
 def run_load_table_to_bigquery(
@@ -196,11 +200,11 @@ def run_data_checks(
   return summary_data
 
 
-def detect_feature_types(bigquery_client: bigquery.Client,
-                         dataset_id: str,
-                         table_name: str,
-                         ignore_columns: List[str]) -> Dict[str, List[str]]:
-  """Detects the feature types using the schema in BigQuery.
+def detect_column_types(bigquery_client: bigquery.Client,
+                        dataset_id: str,
+                        table_name: str,
+                        ignore_columns: List[str]) -> Dict[str, List[str]]:
+  """Detects the column types using the schema in BigQuery.
 
   Args:
     bigquery_client: BigQuery client.
@@ -220,17 +224,16 @@ def detect_feature_types(bigquery_client: bigquery.Client,
       'Detecting features types in project_id %r in dataset %r in table %r',
       bigquery_client.project, dataset_id, table_name)
 
-  features_types = {}
+  input_data_types = collections.defaultdict(list)
   for feature in table.schema:
     if feature.name not in ignore_columns:
       if feature.field_type == 'BOOLEAN':
-        features_types.setdefault('boolean', []).append(feature.name)
+        input_data_types['boolean'].append(feature.name)
       elif feature.field_type in ['INTEGER', 'FLOAT', 'NUMERIC']:
-        features_types.setdefault('numeric', []).append(feature.name)
+        input_data_types['numeric'].append(feature.name)
       elif feature.field_type == 'STRING':
-        features_types.setdefault('string_or_categorical',
-                                  []).append(feature.name)
-  return features_types
+        input_data_types['string_or_categorical'].append(feature.name)
+  return input_data_types
 
 
 def _read_file(file_name: str) -> str:
@@ -249,7 +252,7 @@ def build_query(
     bigquery_client: bigquery.Client,
     dataset_id: str,
     transaction_table_name: str,
-    features_types: Mapping[str, List[str]],
+    input_data_types: Mapping[str, List[str]],
     query_type: str = 'train_query',
     numerical_transformations: Collection[str] = _NUMERICAL_TRANSFORMATIONS,
     write_executed_query_file: Optional[str] = None,
@@ -257,7 +260,7 @@ def build_query(
     days_lookahead: int = 365,
     customer_id_column: str = 'customer_id',
     date_column: str = 'date',
-    value_column: str = 'value') -> str:
+    value_column: str = 'value') -> Tuple[str, Mapping[str, List[str]]]:
   """Builds training or prediction query from transaction data through BigQuery.
 
   This function takes a transaction dataset (a BigQuery table that includes
@@ -272,7 +275,7 @@ def build_query(
     bigquery_client: BigQuery client.
     dataset_id: The Bigquery dataset_id.
     transaction_table_name: The Bigquery table name with transactions.
-    features_types: The mapping of feature types to feature names.
+    input_data_types: The mapping of feature types to feature names.
     query_type: The query type. Has to be one of the keys in
       _QUERY_TEMPLATE_FILES.
     numerical_transformations: The types of transformations for numerical
@@ -285,30 +288,37 @@ def build_query(
     value_column: The name of the value column.
 
   Returns:
-    The SQL script to generate training data ready for machine learning.
+    The SQL script to generate training data ready for machine learning along
+    side with a mapping of the column type and list of columns of that type
+    thave have been created in the training table.
   """
   if query_type not in _QUERY_TEMPLATE_FILES:
     raise ValueError(
         f'{query_type} not one of {_QUERY_TEMPLATE_FILES.keys()}')
-
+  features_types = collections.defaultdict(list)
   features_list = []
-  if 'numeric' in features_types:
-    for feature in features_types['numeric']:
+  if 'numeric' in input_data_types:
+    for feature in input_data_types['numeric']:
       for transformation in numerical_transformations:
-        features_list.append(f'{transformation}({feature}) AS '
-                             f'{transformation.lower()}_{feature}')
+        feature_name = f'{transformation.lower()}_{feature}'
+        features_list.append(f'{transformation}({feature}) AS {feature_name}')
+        features_types['numeric'].append(feature_name)
 
-  if 'boolean' in features_types:
-    for feature in features_types['boolean']:
+  if 'boolean' in input_data_types:
+    for feature in input_data_types['boolean']:
       for transformation in numerical_transformations:
+        feature_name = f'{transformation.lower()}_{feature}'
         features_list.append(f'{transformation}(CAST({feature} AS INT)) AS '
-                             f'{transformation.lower()}_{feature}')
+                             f'{feature_name}')
+        features_types['boolean'].append(feature_name)
 
-  if 'string_or_categorical' in features_types:
-    for feature in features_types['string_or_categorical']:
+  if 'string_or_categorical' in input_data_types:
+    for feature in input_data_types['string_or_categorical']:
       features_list.append(f'TRIM(STRING_AGG(DISTINCT {feature}, " " ORDER BY '
                            f'{feature})) AS {feature}')
+      features_types['string_or_categorical'].append(feature)
 
+  features_types['numeric'].extend(list(_STATIC_NUMERIC_FEATURES))
   query_template = _read_file(_QUERY_TEMPLATE_FILES[query_type])
 
   substituted_query = query_template.format(
@@ -326,7 +336,7 @@ def build_query(
     _write_file(substituted_query, write_executed_query_file)
     logging.info('Query successfully written to: "%r"',
                  write_executed_query_file)
-  return substituted_query
+  return substituted_query, features_types
 
 
 def run_query(

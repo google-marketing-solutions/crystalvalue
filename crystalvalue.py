@@ -19,6 +19,7 @@ The CrystalValue LTV model uses Vertex AI AutoML Tables.
 Minimal example:
 
 from google.cloud import bigquery
+from sklearn import ensemble
 
 import crystalvalue
 
@@ -49,8 +50,13 @@ summary_statistics = pipeline.run_data_checks(
 training_data = pipeline.feature_engineer(
     transaction_table_name='synthetic_data')
 
+# Model training.
+# (Optional) Give a custom model to the training function to be trained by
+# Crystalvalue. Otherwise user can just call .train() to use AutoML.
+pipeline.train_custom_model(ensemble.RandomForestRegressor())
+
 # Creates AI Platform Dataset and trains AutoML model in your GCP.
-pipeline.train()
+pipeline.train_automl_model()
 
 # You can view your model training progress here:
 # https://console.cloud.google.com/vertex-ai/training/training-pipelines
@@ -86,6 +92,7 @@ from google.cloud.exceptions import NotFound
 import pandas as pd
 
 from crystalvalue import automl
+from crystalvalue import custom_model
 from crystalvalue import feature_engineering
 from crystalvalue import model_evaluation
 from crystalvalue import synthetic_data
@@ -111,8 +118,8 @@ class CrystalValue:
     customer_id_column: The name of the customer id column.
     date_column: The name of the date column.
     value_column: The name of the future value column.
-    features_types: A mapping of the feature type to a list of columns of such
-      type. For example:
+    input_data_types: A mapping of the input column type to a list of columns of
+      such type. For example:
       {'numeric': ['transaction_value', 'number_products'],
        'boolean': ['is_registered_customer'],
        'string_or_categorical': ['transaction_type', 'payment_method']}
@@ -127,6 +134,13 @@ class CrystalValue:
       model.
     write_parameters: Whether to write input parameter to file.
     parameters_filename: The file path to write crystalvalue parameters to.
+    features_types: A mapping of the engineered features type to a list of
+      columns of such type. For example:
+      {'numeric': ['transaction_value_mean_last_4_weeks',
+                   'n_products_bought_last_2_weeks'],
+       'boolean': ['is_registered_customer'],
+       'string_or_categorical': ['transaction_type_count',
+                                 'n_distinct_payment_methods']}
   """
   bigquery_client: bigquery.Client
   dataset_id: str
@@ -135,7 +149,7 @@ class CrystalValue:
   customer_id_column: str = 'customer_id'
   date_column: str = 'date'
   value_column: str = 'value'
-  features_types: Optional[Mapping[str, List[str]]] = None
+  input_data_types: Optional[Mapping[str, List[str]]] = None
   ignore_columns: Optional[Collection[str]] = None
   location: str = 'europe-west4'
   days_lookback: int = 365
@@ -259,36 +273,36 @@ class CrystalValue:
     Returns:
       The SQL script to generate training data ready for machine learning.
     """
-    if not self.features_types:
+    if not self.input_data_types:
       if not self.ignore_columns:
         self.ignore_columns = [self.customer_id_column, self.date_column]
       else:
         self.ignore_columns = [self.customer_id_column, self.date_column
                               ] + self.ignore_columns
-      self.features_types = feature_engineering.detect_feature_types(
+      self.input_data_types = feature_engineering.detect_column_types(
           bigquery_client=self.bigquery_client,
           dataset_id=self.dataset_id,
           table_name=transaction_table_name,
           ignore_columns=self.ignore_columns)
-      if not self.features_types:
+      if not self.input_data_types:
         raise ValueError('No features detected')
-      for feature_type in self.features_types:
-        for feature in self.features_types[feature_type]:
+      for feature_type in self.input_data_types:
+        for feature in self.input_data_types[feature_type]:
           logging.info('Detected %r feature %r', feature_type, feature)
 
-    query = feature_engineering.build_query(
+    query, features_types = feature_engineering.build_query(
         query_type=query_type,
         bigquery_client=self.bigquery_client,
         dataset_id=self.dataset_id,
         transaction_table_name=transaction_table_name,
-        features_types=self.features_types,
+        input_data_types=self.input_data_types,
         write_executed_query_file=write_executed_query_file,
         days_lookback=self.days_lookback,
         days_lookahead=self.days_lookahead,
         customer_id_column=self.customer_id_column,
         date_column=self.date_column,
         value_column=self.value_column)
-
+    self.features_types = features_types
     if query_type == 'train_query':
       table_name = self.training_table_name
     elif query_type == 'predict_query':
@@ -320,13 +334,87 @@ class CrystalValue:
         destination_table_name=destination_table_name,
         location=self.location)
 
-  def train(self,
-            dataset_display_name: str = 'crystalvalue_dataset',
-            model_display_name: str = 'crystalvalue_model',
-            predefined_split_column_name: str = 'predefined_split_column',
-            target_column: str = 'future_value',
-            optimization_objective: str = 'minimize-rmse',
-            budget_milli_node_hours: int = 1000) -> aiplatform.models.Model:
+  def train_custom_model(
+      self,
+      model: custom_model.Model,
+      model_display_name: str = 'crystalvalue_model',
+      target_column: str = 'future_value',
+      ) -> aiplatform.models.Model:
+    """Trains a custom model and uploads it to VertexAI.
+
+    Args:
+      model: Custom model to be trained. Currently only sklearn models are
+        supported.
+      model_display_name: The display name of the Model to create.
+      target_column: The target to predict.
+
+    Returns:
+      Vertex AI trained custom model.
+    """
+    model = custom_model.train_custom_model(
+        custom_model=model,
+        model_name=model_display_name,
+        bigquery_client=self.bigquery_client,
+        feature_types=self.features_types,
+        target_column=target_column,
+        dataset_id=self.dataset_id,
+        table_name=self.training_table_name,
+        location=self.location)
+
+    self.model_id = model.name
+    return model
+
+  def train_automl_model(
+      self,
+      dataset_display_name: str = 'crystalvalue_dataset',
+      model_display_name: str = 'crystalvalue_model',
+      predefined_split_column_name: str = 'predefined_split_column',
+      target_column: str = 'future_value',
+      optimization_objective: str = 'minimize-rmse',
+      budget_milli_node_hours: int = 1000) -> aiplatform.models.Model:
+    """Creates Vertex AI Dataset and trains an AutoML Tabular model.
+
+    Args:
+      dataset_display_name: The display name of the Dataset to create.
+      model_display_name: The display name of the Model to create.
+      predefined_split_column_name: A name of one of the Dataset's columns. The
+        values of the column must be one of {``training``, ``validation``,
+        ``test``}, and it defines to which set the given piece of data is
+        assigned. If for a piece of data the key is not present or has an
+        invalid value, that piece is ignored by the pipeline.
+      target_column: The target to predict.
+      optimization_objective: Objective function the Model is to be optimized
+        towards. The training task creates a Model that maximizes/minimizes the
+        value of the objective function over the validation set. "minimize-rmse"
+        (default) - Minimize root-mean-squared error (RMSE). "minimize-mae" -
+        Minimize mean-absolute error (MAE). "minimize-rmsle" - Minimize
+        root-mean-squared log error (RMSLE). Only used for AutoML.
+      budget_milli_node_hours: The number of node hours to use to train the
+        model (times 1000), 1000 milli node hours is 1 mode hour. Only used for
+        AutoML.
+
+    Returns:
+      Vertex AI AutoML model.
+    """
+    model = self.run_automl_training(
+        dataset_display_name=dataset_display_name,
+        model_display_name=model_display_name,
+        predefined_split_column_name=predefined_split_column_name,
+        target_column=target_column,
+        optimization_objective=optimization_objective,
+        budget_milli_node_hours=budget_milli_node_hours)
+
+    self.model_id = model.name
+    return model
+
+  def run_automl_training(
+      self,
+      dataset_display_name: str = 'crystalvalue_dataset',
+      model_display_name: str = 'crystalvalue_model',
+      predefined_split_column_name: str = 'predefined_split_column',
+      target_column: str = 'future_value',
+      optimization_objective: str = 'minimize-rmse',
+      budget_milli_node_hours: int = 1000) -> None:
     """Creates Vertex AI Dataset and trains an AutoML Tabular model.
 
     An AutoML Dataset is required before training a model. See
@@ -482,7 +570,9 @@ class CrystalValue:
     if not model_id:
       model_id = self.model_id
     model = automl.deploy_model(
-        self.bigquery_client, model_id, location=self.location)
+        bigquery_client=self.bigquery_client,
+        model_id=model_id,
+        location=self.location)
     model.wait()
     return model
 
