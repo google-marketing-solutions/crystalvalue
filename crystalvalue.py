@@ -51,8 +51,8 @@ training_data = pipeline.feature_engineer(
     transaction_table_name='synthetic_data')
 
 # Model training.
-# (Optional) Give a custom model to the training function to be trained by
-# Crystalvalue. Otherwise user can just call .train() to use AutoML.
+# (Optional) Give a custom model to the training function to be trained.
+# Otherwise user can just call .train_automl_model() to use AutoML instead.
 pipeline.train_custom_model(ensemble.RandomForestRegressor())
 
 # Creates AI Platform Dataset and trains AutoML model in your GCP.

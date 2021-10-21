@@ -74,7 +74,7 @@ def create_synthetic_data(bigquery_client: Optional[bigquery.Client] = None,
       'numeric_column':
           np.random.exponential(5, size=row_count),
       'bool_column':
-          np.random.rand() > 0.5,
+          np.random.rand(row_count) > 0.5,
       'categorical_column':
           np.random.poisson(3, size=row_count),
       'text_column': [
