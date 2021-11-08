@@ -21,7 +21,7 @@ from google.cloud import bigquery
 import numpy as np
 import pandas as pd
 
-from crystalvalue import feature_engineering
+from crystalvalue.src import feature_engineering
 
 logging.getLogger().setLevel(logging.INFO)
 

@@ -86,16 +86,18 @@ import json
 from typing import Collection, Dict, List, Mapping, Optional
 
 from absl import logging
-from google.cloud import aiplatform
 from google.cloud import bigquery
+from google.cloud import storage
+from google.cloud import aiplatform
 from google.cloud.exceptions import NotFound
+import numpy as np
 import pandas as pd
 
-from crystalvalue import automl
-from crystalvalue import custom_model
-from crystalvalue import feature_engineering
-from crystalvalue import model_evaluation
-from crystalvalue import synthetic_data
+from crystalvalue.src import automl
+from crystalvalue.src import custom_model
+from crystalvalue.src import feature_engineering
+from crystalvalue.src import model_evaluation
+from crystalvalue.src import synthetic_data
 
 
 def load_parameters_from_file(
@@ -154,8 +156,8 @@ class CrystalValue:
   location: str = 'europe-west4'
   days_lookback: int = 365
   days_lookahead: int = 365
-  model_id: str = None
-  endpoint_id: str = None
+  model_id: Optional[str] = None
+  endpoint_id: Optional[str] = None
   write_parameters: bool = False
   parameters_filename: str = 'crystalvalue_parameters.json'
 
@@ -414,7 +416,7 @@ class CrystalValue:
       predefined_split_column_name: str = 'predefined_split_column',
       target_column: str = 'future_value',
       optimization_objective: str = 'minimize-rmse',
-      budget_milli_node_hours: int = 1000) -> None:
+      budget_milli_node_hours: int = 1000) -> aiplatform.Model:
     """Creates Vertex AI Dataset and trains an AutoML Tabular model.
 
     An AutoML Dataset is required before training a model. See
@@ -527,11 +529,13 @@ class CrystalValue:
         endpoint_id = model.gca_resource.deployed_models[0].endpoint.split(
             '/')[-1]
 
-    input_table['predicted_value'] = automl.predict_using_deployed_model(
-        bigquery_client=self.bigquery_client,
-        endpoint=endpoint_id,
-        features=input_table,
-        location=self.location).round(round_decimal_places)
+    input_table['predicted_value'] = np.round(
+        automl.predict_using_deployed_model(
+            bigquery_client=self.bigquery_client,
+            endpoint=endpoint_id,
+            features=input_table,
+            location=self.location),
+        round_decimal_places)
 
     output = input_table[[
         'customer_id',
@@ -621,3 +625,13 @@ class CrystalValue:
     table_id = f'{self.bigquery_client.project}.{self.dataset_id}.{table_name}'
     self.bigquery_client.delete_table(table_id, not_found_ok=True)
     logging.info('Deleted table %r', table_id)
+
+  def create_storage_bucket(self, name: Optional[str] = None) -> storage.Bucket:
+    """Creates a Cloud Storage Bucket."""
+    storage_client = storage.Client()
+    if not name:
+      name = f'{self.bigquery_client.project}-crystalvalue'
+    bucket = storage_client.create_bucket(
+        bucket_or_name=name,
+        location=self.location)
+    return bucket

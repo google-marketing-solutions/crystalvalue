@@ -37,9 +37,10 @@ import logging
 import re
 from typing import List
 
-from google.cloud import aiplatform
 from google.cloud import bigquery
+from google.cloud import aiplatform
 import pandas as pd
+
 
 logging.getLogger().setLevel(logging.INFO)
 
@@ -85,7 +86,7 @@ def create_automl_dataset(
 
 def train_automl_model(
     project_id: str,
-    aiplatform_dataset: str,
+    aiplatform_dataset: aiplatform.TabularDataset,
     model_display_name: str = 'crystalvalue_model',
     predefined_split_column_name: str = 'predefined_split_column',
     target_column: str = 'future_value',
@@ -290,7 +291,7 @@ def predict_using_deployed_model(bigquery_client: bigquery.Client,
         response.predictions[0], float):
       predictions.extend(response.predictions)
     else:
-      predictions.extend([record['value'] for record in response.predictions])
+      raise ValueError('Unknown prediction format')
 
   return predictions
 

@@ -16,11 +16,11 @@
 
 import os
 import subprocess
-from typing import Any, List, Mapping, Optional, Union, Sequence
+from typing import Any, List, Mapping, Optional, Sequence, Union
 
-from google.cloud import aiplatform
 from google.cloud import bigquery
 from google.cloud import storage
+from google.cloud import aiplatform
 import joblib
 import numpy as np
 import pandas as pd
@@ -219,7 +219,7 @@ def _train_categories_embedding(
     target_column: str,
     epochs: int,
     embedding_model_path: str = _EMBEDDING_MODEL_FILENAME,
-    learning_rate: float = 0.1) -> tf.keras.Model:
+    learning_rate: float = 0.1) -> str:
   """Trains the embedding model for creating embeddings for categorical columns.
 
   It creates a model that will generate a embedding for each categorical column
@@ -296,9 +296,8 @@ def _passthrough(data: np.ndarray) -> np.ndarray:
 
 
 def _build_sklearn_pipeline(
-    feature_types: Mapping[str, List[str]],
-    custom_model: Model,
-    embedding_model_path: str) -> pipeline.Pipeline:
+    feature_types: Mapping[str, List[str]], custom_model: Model,
+    embedding_model_path: Optional[str]) -> pipeline.Pipeline:
   """Builds a sklearn pipeline with preprocessing and a given model.
 
   This pipelines tries to provide a similar (but simpler) interface to what
