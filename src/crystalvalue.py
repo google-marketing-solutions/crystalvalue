@@ -93,11 +93,11 @@ from google.cloud.exceptions import NotFound
 import numpy as np
 import pandas as pd
 
-from crystalvalue.src import automl
-from crystalvalue.src import custom_model
-from crystalvalue.src import feature_engineering
-from crystalvalue.src import model_evaluation
-from crystalvalue.src import synthetic_data
+from src import automl
+from src import custom_model
+from src import feature_engineering
+from src import model_evaluation
+from src import synthetic_data
 
 
 def load_parameters_from_file(

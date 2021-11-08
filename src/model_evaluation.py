@@ -23,8 +23,8 @@ from scipy import stats
 import seaborn as sns
 from sklearn import metrics
 
-from crystalvalue.src import automl
-from crystalvalue.src import feature_engineering
+from src import automl
+from src import feature_engineering
 
 
 def get_test_set(bigquery_client: bigquery.Client,
