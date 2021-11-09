@@ -253,14 +253,14 @@ def deploy_model(bigquery_client: bigquery.Client,
   return model
 
 
-def predict_using_deployed_model(bigquery_client: bigquery.Client,
+def predict_using_deployed_model(project_id: str,
                                  endpoint: str,
                                  features: pd.DataFrame,
                                  location: str = 'europe-west4') -> List[float]:
   """Create predictions using a deployed model from a Pandas DataFrame.
 
   Args:
-    bigquery_client: BigQuery client.
+    project_id: The Google project ID.
     endpoint: The ID of the endpoint e.g. '4749679125759787009'.
     features: The features to be used to create predictions.
     location: The location of the model.
@@ -269,7 +269,7 @@ def predict_using_deployed_model(bigquery_client: bigquery.Client,
     Prediction values.
   """
 
-  aiplatform.init(project=bigquery_client.project, location=location)
+  aiplatform.init(project=project_id, location=location)
   endpoint = aiplatform.Endpoint(endpoint)
 
   # Ensure objects such as dates are strings and not datetime.

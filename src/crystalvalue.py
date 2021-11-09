@@ -83,7 +83,7 @@ pipeline.batch_predict(
 
 import dataclasses
 import json
-from typing import Collection, Dict, List, Mapping, Optional
+from typing import Any, Collection, Dict, List, Mapping, Optional
 
 from absl import logging
 from google.cloud import bigquery
@@ -113,8 +113,11 @@ class CrystalValue:
   """Class to train and predict LTV model.
 
   Attributes:
-    bigquery_client: BigQuery client.
-    dataset_id: The Bigquery dataset_id.
+    project_id: The Bigquery project id.
+    dataset_id: The Bigquery dataset id.
+    credentials: The (optional) credentials to authenticate your Bigquery and
+      AIplatform clients. If not passed, falls back to the default inferred
+      from the environment.
     training_table_name: The name of the training table to be created.
     predict_table_name: The name of the prediction features table to be created.
     customer_id_column: The name of the customer id column.
@@ -143,9 +146,11 @@ class CrystalValue:
        'boolean': ['is_registered_customer'],
        'string_or_categorical': ['transaction_type_count',
                                  'n_distinct_payment_methods']}
+    bigquery_client: Bigquery client for querying Bigquery.
   """
-  bigquery_client: bigquery.Client
+  project_id: str
   dataset_id: str
+  credentials: Optional[Any] = None
   training_table_name: str = 'crystalvalue_train_data'
   predict_table_name: str = 'crystalvalue_predict_data'
   customer_id_column: str = 'customer_id'
@@ -160,9 +165,10 @@ class CrystalValue:
   endpoint_id: Optional[str] = None
   write_parameters: bool = False
   parameters_filename: str = 'crystalvalue_parameters.json'
+  bigquery_client: Optional[bigquery.Client] = None
 
   def __post_init__(self):
-    logging.info('Using Google Cloud Project: %r', self.bigquery_client.project)
+    logging.info('Using Google Cloud Project: %r', self.project_id)
     logging.info('Using dataset_id: %r', self.dataset_id)
     logging.info('Using Google Cloud location: %r', self.location)
     logging.info('Using customer id column in input table: %r',
@@ -173,12 +179,15 @@ class CrystalValue:
                  self.days_lookback)
     logging.info('Using days_lookahead for value prediction: %r',
                  self.days_lookahead)
+    self.bigquery_client = bigquery.Client(
+        project=self.project_id, credentials=self.credentials)
     if self.write_parameters:
       self._write_parameters_to_file()
 
   def _write_parameters_to_file(self) -> None:
     """Writes parameters to file."""
     parameters = {
+        'project_id': self.project_id,
         'dataset_id': self.dataset_id,
         'customer_id_column': self.customer_id_column,
         'date_column': self.date_column,
@@ -446,14 +455,14 @@ class CrystalValue:
     """
 
     aiplatform_dataset = automl.create_automl_dataset(
-        project_id=self.bigquery_client.project,
+        project_id=self.project_id,
         dataset_id=self.dataset_id,
         table_name=self.training_table_name,
         dataset_display_name=dataset_display_name,
         location=self.location)
 
     model = automl.train_automl_model(
-        project_id=self.bigquery_client.project,
+        project_id=self.project_id,
         aiplatform_dataset=aiplatform_dataset,
         model_display_name=model_display_name,
         predefined_split_column_name=predefined_split_column_name,
@@ -484,7 +493,7 @@ class CrystalValue:
     if not model_id:
       model_id = self.model_id
     batch_predictions = automl.create_batch_predictions(
-        project_id=self.bigquery_client.project,
+        project_id=self.project_id,
         dataset_id=self.dataset_id,
         model_id=model_id,
         table_name=input_table_name,
@@ -531,7 +540,7 @@ class CrystalValue:
 
     input_table['predicted_value'] = np.round(
         automl.predict_using_deployed_model(
-            bigquery_client=self.bigquery_client,
+            project_id=self.project_id,
             endpoint=endpoint_id,
             features=input_table,
             location=self.location),
@@ -543,7 +552,7 @@ class CrystalValue:
         'lookahead_stop',
         'predicted_value']]
 
-    table_id = f'{self.bigquery_client.project}.{self.dataset_id}.{destination_table}'
+    table_id = f'{self.project_id}.{self.dataset_id}.{destination_table}'
     try:
       self.bigquery_client.get_table(table_id)
       job_config = bigquery.job.LoadJobConfig(
@@ -622,16 +631,32 @@ class CrystalValue:
 
   def delete_table(self, table_name: str) -> None:
     """Deletes a Bigquery table."""
-    table_id = f'{self.bigquery_client.project}.{self.dataset_id}.{table_name}'
+    table_id = f'{self.project_id}.{self.dataset_id}.{table_name}'
     self.bigquery_client.delete_table(table_id, not_found_ok=True)
     logging.info('Deleted table %r', table_id)
 
-  def create_storage_bucket(self, name: Optional[str] = None) -> storage.Bucket:
+  def create_storage_bucket(
+      self, bucket_name: Optional[str] = None) -> storage.Bucket:
     """Creates a Cloud Storage Bucket."""
-    storage_client = storage.Client()
-    if not name:
-      name = f'{self.bigquery_client.project}-crystalvalue'
+    storage_client = storage.Client(
+        project=self.project_id, credentials=self.credentials)
+    if not bucket_name:
+      bucket_name = 'crystalvalue'
     bucket = storage_client.create_bucket(
-        bucket_or_name=name,
+        bucket_or_name=bucket_name,
         location=self.location)
+    logging.info('Created storage bucket with name %r', bucket_name)
     return bucket
+
+  def load_dataframe_to_bigquery(self, data: pd.DataFrame,
+                                 bigquery_table_name: str) -> None:
+    """Loads a dataframe to Bigquery.
+
+    Args:
+      data: The dataframe to load to Bigquery.
+      bigquery_table_name: The Bigquery table name to load the data to.
+    """
+    self.bigquery_client.load_table_from_dataframe(
+        data,
+        destination=f'{self.project_id}.{self.dataset_id}.{bigquery_table_name}',
+        location=self.location).result()

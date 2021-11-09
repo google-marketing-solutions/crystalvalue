@@ -31,8 +31,8 @@ _NUMERICAL_TRANSFORMATIONS = frozenset(['AVG', 'MAX', 'MIN', 'SUM'])
 
 # SQL templates library
 _QUERY_TEMPLATE_FILES = {
-    'train_query': 'crystalvalue/sql_templates/train_query.sql',
-    'predict_query': 'crystalvalue/sql_templates/predict_query.sql',
+    'train_query': 'src/sql_templates/train_query.sql',
+    'predict_query': 'src/sql_templates/predict_query.sql',
 }
 _STATIC_NUMERIC_FEATURES = ('days_since_last_transaction',
                             'days_since_first_transaction',
