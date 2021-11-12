@@ -180,7 +180,17 @@ class CrystalValue:
     logging.info('Using days_lookahead for value prediction: %r',
                  self.days_lookahead)
     self.bigquery_client = bigquery.Client(
-        project=self.project_id, credentials=self.credentials)
+        project=self.project_id,
+        location=self.location,
+        credentials=self.credentials)
+    try:
+      self.bigquery_client.get_dataset(self.dataset_id)
+    except NotFound:
+      logging.info('Dataset %r not found, creating the dataset %r '
+                   'in project %r in location %r',
+                   self.dataset_id, self.dataset_id, self.project_id,
+                   self.location)
+      self.bigquery_client.create_dataset(self.dataset_id)
     if self.write_parameters:
       self._write_parameters_to_file()
 
@@ -537,6 +547,8 @@ class CrystalValue:
         model = aiplatform.Model(model_id, location=self.location)
         endpoint_id = model.gca_resource.deployed_models[0].endpoint.split(
             '/')[-1]
+      else:
+        endpoint_id = self.endpoint_id
 
     input_table['predicted_value'] = np.round(
         automl.predict_using_deployed_model(
@@ -620,6 +632,8 @@ class CrystalValue:
         model = aiplatform.Model(model_id, location=self.location)
         endpoint_id = model.gca_resource.deployed_models[0].endpoint.split(
             '/')[-1]
+      else:
+        endpoint_id = self.endpoint_id
     return model_evaluation.evaluate_model_predictions(
         bigquery_client=self.bigquery_client,
         dataset_id=self.dataset_id,

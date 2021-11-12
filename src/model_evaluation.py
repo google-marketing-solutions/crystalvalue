@@ -175,7 +175,7 @@ def evaluate_model_predictions(
       location=location)
 
   data['predicted_value'] = automl.predict_using_deployed_model(
-      bigquery_client=bigquery_client,
+      project_id=bigquery_client.project,
       endpoint=endpoint,
       features=data,
       location=location)
