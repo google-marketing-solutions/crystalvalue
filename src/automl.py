@@ -291,7 +291,7 @@ def predict_using_deployed_model(project_id: str,
         response.predictions[0], float):
       predictions.extend(response.predictions)
     else:
-      raise ValueError('Unknown prediction format')
+      predictions.extend([record['value'] for record in response.predictions])
 
   return predictions
 
