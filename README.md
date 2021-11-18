@@ -43,7 +43,7 @@ The outputs of Crystalvalue are sent to Bigquery in your Google Cloud Project:
 1. **Predicted Customer LifeTime Value** (in monetary terms) of your customers over the specified future period (default is one year). See the example table below. By defaut all your customers who had any activity (either transactions or browsing history) in the lookback period (default is one year) are included. This output table can be automatically refreshed every day. By default this table is called `crystalvalue_predictions`.
 
   customer_id  | lookahead_start | lookahead_stop | predicted_value
-  ------- | -------- | -------- | -------- | --------
+  ------- | -------- | -------- | -------- 
   32670| 2021-11-02| 2022-11-01| 156.76
   33890 | 2021-11-02| 2022-11-01| 170.23
 
@@ -77,7 +77,7 @@ A pLTV model predicts the ‘value’ (i.e. total profit or revenue) for each cu
 
 For model training, ‘customer-windows’ are created which are made up of ‘features’ and ‘value’. For serving predictions, only the ‘features’ need to be created and the model predicts the future value.
 
-  ![Crystalval](https://screenshot.googleplex.com/BR7QoBzQnv8CRL5.png)
+  ![what_is_ltv](images/what_is_ltv.png)
 
 
 
@@ -89,7 +89,7 @@ The steps in the Crystalvalue LTV process are outlined below and are set out in 
 
 **Figure 1**
 
-  ![Crystalval](https://screenshot.googleplex.com/4xGe5uQ4z7jQMEZ.png)
+  ![crystalvalue_steps](images/crystalvalue_steps.png)
 
 * **Data cleaning**. Crystalvalue takes in a BigQuery table (e.g. data from Google Analytics or a CRM transaction dataset) and performs automated data checks. It will also output a table in your Bigquery dataset (default name: `crystalvalue_data_statistics`) with important statistics to help the user decide whether data cleaning is necessary (i.e. negative prices, extreme outliers). See the README section Outputs for which metrics are computed. 
 
@@ -106,12 +106,12 @@ The steps in the Crystalvalue LTV process are outlined below and are set out in 
 
   **Figure 2**
 
-  ![Crystalval](https://screenshot.googleplex.com/645o76szJkYPVZg.png)
+  ![feature_engineering](images/feature_engineering.png)
 
 
   **Figure 3**
 
-  ![Crystalval](https://screenshot.googleplex.com/64VJyTq9WiU6Fpp.png)
+  ![features](images/features.png)
 
 * **Model Training**. Crystalvalue will programmatically train a Vertex AI Tabular AutoML model which will then be visible in the [Vertex AI dashboard](https://console.cloud.google.com/vertex-ai). The default names of the Vertex Dataset and Model are `crystalvalue_dataset` and `crystalvalue_model`. Once the model is trained, the feature importance will be shown in the Vertex AI model interface. The amount of node hours of training is specified using the `budget_milli_node_hours` argument (default is 1000 milli hours, which is equivalent to 1 hour). AutoML carries out impressive [data prepation](https://cloud.google.com/automl-tables/docs/data-best-practices#tables-does) before creating the model which means it can ingest features that are:
   * Plain Text (e.g. customer searches on your website)
