@@ -550,6 +550,7 @@ class CrystalValue:
       else:
         endpoint_id = self.endpoint_id
 
+    input_table = input_table.copy()
     input_table['predicted_value'] = np.round(
         automl.predict_using_deployed_model(
             project_id=self.project_id,
