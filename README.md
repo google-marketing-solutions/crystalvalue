@@ -4,7 +4,7 @@ This is not an official Google product.
 
 ## Overview
 
-Crystalvalue is a Python library for running Predictive Customer LifeTime Value (pLTV) projects leveraging [Google Cloud Vertex AI](https://cloud.google.com/vertex-ai). It enables advertisers to quickly build effective pLTV machine learning models using 1st party data and to programmatically set up infrastructure for predictions, continuous pLTV insights and model maintenance. pLTV predictions are used by advertisers to boost digital advertising performance. Crystalvalue is primarily for advertisers who sell non-subscription based products and who have some repeat customers. Crystalvalue was created by experienced Google marketing data scientists and customer solution engineers.
+Crystalvalue is a Python library for running Predictive Customer LifeTime Value (pLTV) projects leveraging [Google Cloud Vertex AI](https://cloud.google.com/vertex-ai). It enables advertisers to quickly build effective pLTV machine learning models using 1st party data and to programmatically set up infrastructure for predictions, continuous pLTV insights and model maintenance. pLTV predictions are used by advertisers to boost digital advertising performance. Crystalvalue is primarily for advertisers who sell non-subscription based products and who have some repeat customers. Crystalvalue was created by experienced Google marketing data scientists and customer solutions engineers.
 
 
 ## Quick Start
