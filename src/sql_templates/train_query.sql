@@ -51,9 +51,7 @@ WITH
       DateWindowsTable.window_date AS window_date,
       DATE_SUB(DateWindowsTable.window_date, INTERVAL {days_lookback} day) AS lookback_start,
       DATE_ADD(DateWindowsTable.window_date, INTERVAL 1 day) AS lookahead_start,
-      DATE_ADD(DateWindowsTable.window_date, INTERVAL {days_lookahead} day) AS lookahead_stop,
-      ROW_NUMBER()
-        OVER (PARTITION BY CAST(TX_DATA.{customer_id_column} AS STRING) ORDER BY RAND()) AS customer_window_number
+      DATE_ADD(DateWindowsTable.window_date, INTERVAL {days_lookahead} day) AS lookahead_stop
     FROM {project_id}.{dataset_id}.{table_name} AS TX_DATA
     CROSS JOIN DateWindowsTable
   ),
@@ -71,10 +69,10 @@ WITH
           BETWEEN CustomerWindows.lookahead_start
           AND CustomerWindows.lookahead_stop)
     GROUP BY
-      1, 2, 3, 4, 5, 6
+      1, 2, 3, 4, 5
   )
 SELECT
-  Target.* EXCEPT (customer_window_number),
+  Target.*,
   CASE
     WHEN
       ABS(
@@ -110,6 +108,5 @@ JOIN
   ON (
     CAST(TX_DATA.{customer_id_column} AS STRING) = Target.customer_id
     AND DATE(TX_DATA.{date_column}) BETWEEN Target.lookback_start AND DATE(Target.window_date))
-WHERE Target.customer_window_number <= 10
 GROUP BY
   1, 2, 3, 4, 5, 6, 7;
