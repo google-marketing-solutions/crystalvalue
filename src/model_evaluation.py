@@ -53,7 +53,7 @@ def get_test_set(bigquery_client: bigquery.Client,
 
 
 def _calculate_normalized_mae(y_actual: pd.Series,
-                              y_predicted: pd.Series) -> np.float:
+                              y_predicted: pd.Series) -> float:
   """Helper function for calculating bin level normalized mean absolute error.
 
   Args:
@@ -78,7 +78,7 @@ def _gini(series1: pd.Series, series2: pd.Series) -> np.float64:
     Gini coefficient between the two series.
   """
   y_all = np.asarray(
-      np.c_[series1, series2, np.arange(len(series1))], dtype=np.float)
+      np.c_[series1, series2, np.arange(len(series1))], dtype=float)
   y_all_sorted_desc = y_all[np.lexsort((y_all[:, 2], -1 * y_all[:, 1]))]
   total_series1 = y_all_sorted_desc[:, 0].sum()
   gini_raw_numerator = y_all_sorted_desc[:, 0].cumsum().sum()
@@ -88,7 +88,7 @@ def _gini(series1: pd.Series, series2: pd.Series) -> np.float64:
 
 
 def _compute_gini_normalized(y_actual: pd.Series,
-                             y_predicted: pd.Series) -> np.float:
+                             y_predicted: pd.Series) -> float:
   """Produces normalized Gini coefficient between actual and predicted LTV.
 
   Args:
