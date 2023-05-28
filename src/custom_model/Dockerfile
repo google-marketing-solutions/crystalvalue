@@ -18,7 +18,7 @@ WORKDIR .
 
 COPY . .
 
-RUN python3 -m pip install --upgrade pip
+RUN python3 -m pip install --require-hashes --upgrade pip==22.3.1
 RUN pip3 install --require-hashes -r requirements.txt
 
 # Expose port 8080
