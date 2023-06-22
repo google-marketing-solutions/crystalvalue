@@ -131,11 +131,3 @@ The steps in the Crystalvalue LTV process are outlined below and are set out in 
 * **Monitor feature skew and drift.** [Vertex AI Model Monitoring supports feature skew and drift detection for categorical and numerical input features.](https://cloud.google.com/vertex-ai/docs/model-monitoring/using-model-monitoring). This can be set up in the Vertex UI from your model's endpoint settings. Use this feature to set up [email alerts](https://cloud.google.com/vertex-ai/docs/model-monitoring/using-model-monitoring#email-alerts) for when the monitoring detects [Prediction Drift Training Prediction Skew](https://cloud.google.com/vertex-ai/docs/model-monitoring/using-model-monitoring#analyzing-skew-drift), which is a useful prompt to retrain the model using fresh data.
 
 
-## The team
-
-*  dfkelly@google.com
-*  dulacp@google.com
-*  pduque@google.com
-*  sumedhamenon@google.com
-
-

@@ -18,4 +18,4 @@ WORKDIR .
 
 COPY . .
 
-RUN pip install --require-hashes -r requirements.txt
+RUN pip install -r requirements.txt
