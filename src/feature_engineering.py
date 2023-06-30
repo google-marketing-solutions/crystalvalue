@@ -34,9 +34,11 @@ _QUERY_TEMPLATE_FILES = {
     'train_query': 'src/sql_templates/train_query.sql',
     'predict_query': 'src/sql_templates/predict_query.sql',
 }
-_STATIC_NUMERIC_FEATURES = ('days_since_last_transaction',
-                            'days_since_first_transaction',
-                            'count_transactions')
+_STATIC_NUMERIC_FEATURES = (
+    'days_since_last_transaction',
+    'days_since_first_transaction',
+    'count_transactions',
+)
 
 
 def run_load_table_to_bigquery(
@@ -45,20 +47,23 @@ def run_load_table_to_bigquery(
     dataset_id: str,
     table_name: str,
     location: str = 'europe-west4',
-    write_disposition: str = bigquery.WriteDisposition.WRITE_TRUNCATE) -> None:
+    write_disposition: str = bigquery.WriteDisposition.WRITE_TRUNCATE,
+) -> None:
   """Loads a Pandas Dataframe to Bigquery."""
   table_id = f'{bigquery_client.project}.{dataset_id}.{table_name}'
-  job_config = bigquery.job.LoadJobConfig(
-      write_disposition=write_disposition)
+  job_config = bigquery.job.LoadJobConfig(write_disposition=write_disposition)
   if write_disposition == bigquery.WriteDisposition.WRITE_TRUNCATE:
     logging.info('Creating table %r in location %r', table_id, location)
   else:
     logging.info('Appending to table %r in location %r', table_id, location)
+
+  data.columns = data.columns.astype(str)
   bigquery_client.load_table_from_dataframe(
       dataframe=data,
       destination=table_id,
       job_config=job_config,
-      location=location).result()
+      location=location,
+  ).result()
 
 
 def run_data_checks(
@@ -72,7 +77,8 @@ def run_data_checks(
     date_column: str = 'date',
     value_column: str = 'value',
     round_decimal_places: int = 2,
-    summary_table_name: str = 'summary_statistics') -> pd.DataFrame:
+    summary_table_name: str = 'summary_statistics',
+) -> pd.DataFrame:
   """Raises exceptions for data issues and outputs summary table to Bigquery.
 
   Args:
@@ -136,42 +142,50 @@ def run_data_checks(
   min_date = data[date_column].min()
 
   last_day_with_lookahead = data[date_column].max() - datetime.timedelta(
-      days=days_lookahead)
+      days=days_lookahead
+  )
   data_with_lookahead = data[data[date_column] <= last_day_with_lookahead]
-  lookahead_customer_return_rate = data_with_lookahead[
-      'future_purchase_dates'].astype(bool).mean()
+  lookahead_customer_return_rate = (
+      data_with_lookahead['future_purchase_dates'].astype(bool).mean()
+  )
   lookahead_customer_mean_returns = data_with_lookahead[
-      'future_purchase_dates'].mean()
+      'future_purchase_dates'
+  ].mean()
   lookahead_customer_conditional_mean_returns = data_with_lookahead.loc[
-      data_with_lookahead['future_purchase_dates'] > 0,
-      'future_purchase_dates'].mean()
+      data_with_lookahead['future_purchase_dates'] > 0, 'future_purchase_dates'
+  ].mean()
 
   summary_data = pd.Series({
       'number_of_rows': len(data),
       'number_of_customers': data[customer_id_column].nunique(),
       'number_of_transactions': len(data[data[value_column] > 0]),
       'total_analysis_days': (max_date - min_date).days,
-      'number_of_days_with_data':
-          data[date_column].nunique(),
-      'max_transaction_date':
-          max_date.strftime('%Y-%m-%d'),
-      'min_transaction_date':
-          min_date.strftime('%Y-%m-%d'),
-      'lookahead_customer_return_rate':
-          np.round(lookahead_customer_return_rate, round_decimal_places),
-      'lookahead_customer_mean_returns':
-          np.round(lookahead_customer_mean_returns, round_decimal_places),
-      'lookahead_customer_conditional_mean_returns':
-          np.round(lookahead_customer_conditional_mean_returns,
-                   round_decimal_places)
+      'number_of_days_with_data': data[date_column].nunique(),
+      'max_transaction_date': max_date.strftime('%Y-%m-%d'),
+      'min_transaction_date': min_date.strftime('%Y-%m-%d'),
+      'lookahead_customer_return_rate': np.round(
+          lookahead_customer_return_rate, round_decimal_places
+      ),
+      'lookahead_customer_mean_returns': np.round(
+          lookahead_customer_mean_returns, round_decimal_places
+      ),
+      'lookahead_customer_conditional_mean_returns': np.round(
+          lookahead_customer_conditional_mean_returns, round_decimal_places
+      ),
   })
 
   value_summary = data[value_column].describe()[1:].round(round_decimal_places)
-  value_summary.index = [f'{value_column}_{statistic}' for statistic in
-                         value_summary.index.str.replace('%', '_quantile')]
+  value_summary.index = [
+      f'{value_column}_{statistic}'
+      for statistic in value_summary.index.str.replace('%', '_quantile')
+  ]
 
-  transactions_summary = data.groupby(
-      customer_id_column).size().describe()[1:].round(round_decimal_places)
+  transactions_summary = (
+      data.groupby(customer_id_column)
+      .size()
+      .describe()[1:]
+      .round(round_decimal_places)
+  )
   transactions_summary.index = [
       f'transactions_per_customer_{statistic}'
       for statistic in transactions_summary.index.str.replace('%', '_quantile')
@@ -182,13 +196,15 @@ def run_data_checks(
   if summary_data['number_of_rows'] < 1000:
     raise ValueError(
         f'{summary_data["number_of_rows"]} is too few data points to '
-        'build an LTV model.')
+        'build an LTV model.'
+    )
 
   if summary_data['total_analysis_days'] < days_lookback + days_lookahead:
     raise ValueError(
         f'Insufficient analysis days ({summary_data["total_analysis_days"]})'
         f'for selected lookahead ({days_lookahead} days) and '
-        f'lookback ({days_lookback} days) windows')
+        f'lookback ({days_lookback} days) windows'
+    )
 
   summary_data = summary_data.to_frame('statistics').T
   run_load_table_to_bigquery(
@@ -196,14 +212,17 @@ def run_data_checks(
       bigquery_client,
       dataset_id,
       table_name=summary_table_name,
-      location=location)
+      location=location,
+  )
   return summary_data
 
 
-def detect_column_types(bigquery_client: bigquery.Client,
-                        dataset_id: str,
-                        table_name: str,
-                        ignore_columns: List[str]) -> Dict[str, List[str]]:
+def detect_column_types(
+    bigquery_client: bigquery.Client,
+    dataset_id: str,
+    table_name: str,
+    ignore_columns: List[str],
+) -> Dict[str, List[str]]:
   """Detects the column types using the schema in BigQuery.
 
   Args:
@@ -217,12 +236,16 @@ def detect_column_types(bigquery_client: bigquery.Client,
     feature names.
   """
   dataset_reference = bigquery_client.dataset(
-      dataset_id, project=bigquery_client.project)
+      dataset_id, project=bigquery_client.project
+  )
   table_reference = dataset_reference.table(table_name)
   table = bigquery_client.get_table(table_reference)
   logging.info(
       'Detecting features types in project_id %r in dataset %r in table %r',
-      bigquery_client.project, dataset_id, table_name)
+      bigquery_client.project,
+      dataset_id,
+      table_name,
+  )
 
   input_data_types = collections.defaultdict(list)
   for feature in table.schema:
@@ -260,7 +283,8 @@ def build_query(
     days_lookahead: int = 365,
     customer_id_column: str = 'customer_id',
     date_column: str = 'date',
-    value_column: str = 'value') -> Tuple[str, Mapping[str, List[str]]]:
+    value_column: str = 'value',
+) -> Tuple[str, Mapping[str, List[str]]]:
   """Builds training or prediction query from transaction data through BigQuery.
 
   This function takes a transaction dataset (a BigQuery table that includes
@@ -293,8 +317,7 @@ def build_query(
     thave have been created in the training table.
   """
   if query_type not in _QUERY_TEMPLATE_FILES:
-    raise ValueError(
-        f'{query_type} not one of {_QUERY_TEMPLATE_FILES.keys()}')
+    raise ValueError(f'{query_type} not one of {_QUERY_TEMPLATE_FILES.keys()}')
   features_types = collections.defaultdict(list)
   features_list = []
   if 'numeric' in input_data_types:
@@ -308,14 +331,17 @@ def build_query(
     for feature in input_data_types['boolean']:
       for transformation in numerical_transformations:
         feature_name = f'{transformation.lower()}_{feature}'
-        features_list.append(f'{transformation}(CAST({feature} AS INT)) AS '
-                             f'{feature_name}')
+        features_list.append(
+            f'{transformation}(CAST({feature} AS INT)) AS {feature_name}'
+        )
         features_types['boolean'].append(feature_name)
 
   if 'string_or_categorical' in input_data_types:
     for feature in input_data_types['string_or_categorical']:
-      features_list.append(f'TRIM(STRING_AGG(DISTINCT {feature}, " " ORDER BY '
-                           f'{feature})) AS {feature}')
+      features_list.append(
+          f'TRIM(STRING_AGG(DISTINCT {feature}, " " ORDER BY '
+          f'{feature})) AS {feature}'
+      )
       features_types['string_or_categorical'].append(feature)
 
   features_types['numeric'].extend(list(_STATIC_NUMERIC_FEATURES))
@@ -330,12 +356,14 @@ def build_query(
       value_column=value_column,
       days_lookback=days_lookback,
       days_lookahead=days_lookahead,
-      features_sql=', \n'.join(features_list))
+      features_sql=', \n'.join(features_list),
+  )
 
   if write_executed_query_file:
     _write_file(substituted_query, write_executed_query_file)
-    logging.info('Query successfully written to: "%r"',
-                 write_executed_query_file)
+    logging.info(
+        'Query successfully written to: "%r"', write_executed_query_file
+    )
   return substituted_query, features_types
 
 
@@ -370,8 +398,12 @@ def run_query(
   table_id = f'{bigquery_client.project}.{dataset_id}.{destination_table_name}'
   job_config = bigquery.QueryJobConfig(
       destination=table_id,
-      write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
-  data = bigquery_client.query(
-      query, job_config=job_config, location=location).result().to_dataframe()
+      write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+  )
+  data = (
+      bigquery_client.query(query, job_config=job_config, location=location)
+      .result()
+      .to_dataframe()
+  )
   logging.info('Created table %r in location %r', table_id, location)
   return data

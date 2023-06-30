@@ -27,11 +27,13 @@ from src import automl
 from src import feature_engineering
 
 
-def get_test_set(bigquery_client: bigquery.Client,
-                 dataset_id: str,
-                 table_name: str = 'training_data',
-                 predefined_split_column: str = 'predefined_split_column',
-                 location: str = 'europe-west4') -> pd.DataFrame:
+def get_test_set(
+    bigquery_client: bigquery.Client,
+    dataset_id: str,
+    table_name: str = 'training_data',
+    predefined_split_column: str = 'predefined_split_column',
+    location: str = 'europe-west4',
+) -> pd.DataFrame:
   """Get test set from Bigquery table for model evaluation.
 
   Args:
@@ -52,8 +54,9 @@ def get_test_set(bigquery_client: bigquery.Client,
   return bigquery_client.query(query, location=location).result().to_dataframe()
 
 
-def _calculate_normalized_mae(y_actual: pd.Series,
-                              y_predicted: pd.Series) -> float:
+def _calculate_normalized_mae(
+    y_actual: pd.Series, y_predicted: pd.Series
+) -> float:
   """Helper function for calculating bin level normalized mean absolute error.
 
   Args:
@@ -64,7 +67,8 @@ def _calculate_normalized_mae(y_actual: pd.Series,
     Normalized Mean Absolute Error.
   """
   return np.divide(
-      metrics.mean_absolute_error(y_actual, y_predicted), np.mean(y_actual))
+      metrics.mean_absolute_error(y_actual, y_predicted), np.mean(y_actual)
+  )
 
 
 def _gini(series1: pd.Series, series2: pd.Series) -> np.float64:
@@ -78,17 +82,19 @@ def _gini(series1: pd.Series, series2: pd.Series) -> np.float64:
     Gini coefficient between the two series.
   """
   y_all = np.asarray(
-      np.c_[series1, series2, np.arange(len(series1))], dtype=float)
+      np.c_[series1, series2, np.arange(len(series1))], dtype=float
+  )
   y_all_sorted_desc = y_all[np.lexsort((y_all[:, 2], -1 * y_all[:, 1]))]
   total_series1 = y_all_sorted_desc[:, 0].sum()
   gini_raw_numerator = y_all_sorted_desc[:, 0].cumsum().sum()
   gini_sum = gini_raw_numerator / total_series1
-  gini_sum_adjusted = gini_sum - (len(series1) + 1) / 2.
+  gini_sum_adjusted = gini_sum - (len(series1) + 1) / 2.0
   return gini_sum_adjusted / len(series1)
 
 
-def _compute_gini_normalized(y_actual: pd.Series,
-                             y_predicted: pd.Series) -> float:
+def _compute_gini_normalized(
+    y_actual: pd.Series, y_predicted: pd.Series
+) -> float:
   """Produces normalized Gini coefficient between actual and predicted LTV.
 
   Args:
@@ -118,7 +124,8 @@ def _plot_summary_stats(bin_data: pd.DataFrame) -> None:
   fig, ax1 = plt.subplots(figsize=(10, 7))
   p1 = sns.barplot(x='Bin', y='Value', hue='Variable', data=plot_data)
   ax1.set_title(
-      'Model Evaluation  - Bin level average and predicted LTV', fontsize=15)
+      'Model Evaluation  - Bin level average and predicted LTV', fontsize=15
+  )
   p1.set_xlabel('Prediction Bin', fontsize=9)
   p1.set_ylabel('Average LTV', fontsize=9)
   p1.legend(loc='upper right')
@@ -137,7 +144,8 @@ def evaluate_model_predictions(
     table_evaluation_stats: str = 'test_set_evaluation',
     location: str = 'europe-west4',
     number_bins: int = 10,
-    round_decimal_places: int = 2) -> pd.DataFrame:
+    round_decimal_places: int = 2,
+) -> pd.DataFrame:
   """Creates a plot and BigQuery table with evaluation metrics for LTV model.
 
   This function creates plots and a table with date of running, model id and
@@ -172,42 +180,53 @@ def evaluate_model_predictions(
       bigquery_client=bigquery_client,
       dataset_id=dataset_id,
       table_name=training_data_name,
-      location=location)
+      location=location,
+  )
 
   data['predicted_value'] = automl.predict_using_deployed_model(
       project_id=bigquery_client.project,
       endpoint=endpoint,
       features=data,
-      location=location)
+      location=location,
+  )
 
   spearman_correlation = round(
       stats.spearmanr(data['future_value'], data['predicted_value'])[0],
-      round_decimal_places)
+      round_decimal_places,
+  )
   gini_normalized = round(
       _compute_gini_normalized(data['future_value'], data['predicted_value']),
-      round_decimal_places)
+      round_decimal_places,
+  )
   normalised_mae = round(
       _calculate_normalized_mae(data['future_value'], data['predicted_value']),
-      round_decimal_places)
+      round_decimal_places,
+  )
 
   data['bin'] = pd.qcut(
       data['predicted_value'].rank(method='first'),
       number_bins,
-      labels=np.arange(number_bins, 0, -1)).astype(int)
+      labels=np.arange(number_bins, 0, -1),
+  ).astype(int)
 
-  revenue_shares = pd.DataFrame().append(
-      pd.Series(dtype='object'), ignore_index=True)
+  revenue_shares = pd.concat(
+      [pd.DataFrame(), pd.Series(dtype='object')], ignore_index=True
+  )
+
   total_value = data['future_value'].sum()
   data = data.sort_values('predicted_value', ascending=False)
   for i in [0.01, 0.05, 0.10]:
     number_of_rows = int(i * len(data))
     revenue_shares[
-        f'top_{int(i * 100)}_percent_predicted_customers_value_share'] = np.divide(
-            data[:number_of_rows]['future_value'].sum(), total_value)
+        f'top_{int(i * 100)}_percent_predicted_customers_value_share'
+    ] = np.divide(data[:number_of_rows]['future_value'].sum(), total_value)
   revenue_shares = revenue_shares.round(round_decimal_places)
 
-  bin_summary = data.groupby('bin')[['predicted_value', 'future_value'
-                                    ]].mean().round(round_decimal_places)
+  bin_summary = (
+      data.groupby('bin')[['predicted_value', 'future_value']]
+      .mean()
+      .round(round_decimal_places)
+  )
   bin_summary.columns = [f'mean_{column}' for column in bin_summary.columns]
   bin_summary = bin_summary.reset_index()
   _plot_summary_stats(bin_data=bin_summary)
@@ -218,10 +237,11 @@ def evaluate_model_predictions(
       'test_set_rows': len(data),
       'spearman_correlation': spearman_correlation,
       'gini_normalized': gini_normalized,
-      'normalised_mae': normalised_mae
+      'normalised_mae': normalised_mae,
   }])
   model_summary_statistics = pd.concat(
-      [model_summary_statistics, revenue_shares], axis=1)
+      [model_summary_statistics, revenue_shares], axis=1
+  )
 
   feature_engineering.run_load_table_to_bigquery(
       data=model_summary_statistics,
@@ -229,5 +249,6 @@ def evaluate_model_predictions(
       dataset_id=dataset_id,
       table_name=table_evaluation_stats,
       location=location,
-      write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
+      write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+  )
   return model_summary_statistics
