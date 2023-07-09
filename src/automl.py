@@ -97,6 +97,7 @@ def train_automl_model(
     predefined_split_column_name: str = 'predefined_split_column',
     target_column: str = 'future_value',
     optimization_objective: str = 'minimize-rmse',
+    optimization_prediction_type: str = 'regression',
     budget_milli_node_hours: int = 1000,
     location: str = 'europe-west4',
 ) -> aiplatform.models.Model:
@@ -121,7 +122,12 @@ def train_automl_model(
       value of the objective function over the validation set. "minimize-rmse"
       (default) - Minimize root-mean-squared error (RMSE). "minimize-mae" -
       Minimize mean-absolute error (MAE). "minimize-rmsle" - Minimize
-      root-mean-squared log error (RMSLE).
+      root-mean-squared log error (RMSLE). for classification use:
+      "maximize-au-prc" - Maximize precision-recall area under curve.
+      "maximize-au-roc" - Maximize ROC area under curve. "minimize-log-loss"
+      Minimize log-loss.
+    optimization_prediction_type: Prediction type for training. The possible
+      training tasks are: "regression" (default) "classification"
     budget_milli_node_hours: The number of node hours to use to train the model
       (times 1000), 1000 milli node hours is 1 mode hour.
     location: The location to train the AutoML model.
@@ -142,7 +148,7 @@ def train_automl_model(
   aiplatform.init(project=project_id, location=location)
   job = aiplatform.AutoMLTabularTrainingJob(
       display_name=model_display_name,
-      optimization_prediction_type='regression',
+      optimization_prediction_type=optimization_prediction_type,
       optimization_objective=optimization_objective,
       column_transformations=transformations,
   )

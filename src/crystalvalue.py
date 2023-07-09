@@ -392,6 +392,7 @@ class CrystalValue:
       predefined_split_column_name: str = 'predefined_split_column',
       target_column: str = 'future_value',
       optimization_objective: str = 'minimize-rmse',
+      optimization_prediction_type: str = 'regression',
       budget_milli_node_hours: int = 1000) -> aiplatform.models.Model:
     """Creates Vertex AI Dataset and trains an AutoML Tabular model.
 
@@ -410,6 +411,7 @@ class CrystalValue:
         (default) - Minimize root-mean-squared error (RMSE). "minimize-mae" -
         Minimize mean-absolute error (MAE). "minimize-rmsle" - Minimize
         root-mean-squared log error (RMSLE). Only used for AutoML.
+      optimization_prediction_type: 'regression' or 'classification'
       budget_milli_node_hours: The number of node hours to use to train the
         model (times 1000), 1000 milli node hours is 1 mode hour. Only used for
         AutoML.
@@ -423,6 +425,7 @@ class CrystalValue:
         predefined_split_column_name=predefined_split_column_name,
         target_column=target_column,
         optimization_objective=optimization_objective,
+        optimization_prediction_type=optimization_prediction_type,
         budget_milli_node_hours=budget_milli_node_hours)
 
     self.model_id = model.name
@@ -435,6 +438,7 @@ class CrystalValue:
       predefined_split_column_name: str = 'predefined_split_column',
       target_column: str = 'future_value',
       optimization_objective: str = 'minimize-rmse',
+      optimization_prediction_type: str = 'regression',
       budget_milli_node_hours: int = 1000) -> aiplatform.Model:
     """Creates Vertex AI Dataset and trains an AutoML Tabular model.
 
@@ -457,6 +461,7 @@ class CrystalValue:
         (default) - Minimize root-mean-squared error (RMSE). "minimize-mae" -
         Minimize mean-absolute error (MAE). "minimize-rmsle" - Minimize
         root-mean-squared log error (RMSLE).
+      optimization_prediction_type: 'regression' or 'classification'
       budget_milli_node_hours: The number of node hours to use to train the
         model (times 1000), 1000 milli node hours is 1 mode hour.
 
@@ -478,6 +483,7 @@ class CrystalValue:
         predefined_split_column_name=predefined_split_column_name,
         target_column=target_column,
         optimization_objective=optimization_objective,
+        optimization_prediction_type=optimization_prediction_type,
         budget_milli_node_hours=budget_milli_node_hours,
         location=self.location)
     self.model_id = model.name
