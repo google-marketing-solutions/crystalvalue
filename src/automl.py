@@ -50,6 +50,7 @@ _NON_FEATURES = [
     'lookahead_start',
     'lookahead_stop',
     'future_value',
+    'future_value_classification',
     'predefined_split_column',
 ]
 
