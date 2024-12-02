@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for crystalvalue.feature_engineering."""
 
 import unittest
 
@@ -36,7 +35,11 @@ class FeatureEngineeringTest(unittest.TestCase):
     self.read_query_file = 'query.txt'
     self.transaction_table_name = 'test_transaction_table_name'
     self.destination_table_name = 'test_destination_table_name'
-    self.input_data_types = {'numerical': 'numerical_column'}
+    self.input_data_types = {
+        'numeric': ['numerical_column'],
+        'boolean': ['boolean_column'],
+        'string_or_categorical': ['string_column']
+    }
 
   def test_build_train_query_reads_query(self):
 
@@ -57,6 +60,27 @@ class FeatureEngineeringTest(unittest.TestCase):
         destination_table_name=self.destination_table_name)
 
     self.mock_read.assert_called_once()
+
+  def test_build_query_substitutions(self):
+
+    with mock.patch.object(
+        feature_engineering, '_read_file', return_value='{features_sql}'
+    ):
+      query, _ = feature_engineering.build_query(
+          bigquery_client=self.mock_client,
+          dataset_id=self.dataset_id,
+          transaction_table_name=self.transaction_table_name,
+          input_data_types=self.input_data_types)
+
+      expected_numeric_str = 'MAX(numerical_column) AS max_numerical_column'
+      expected_boolean_str = ('MAX(CAST(boolean_column AS INT))'
+                              ' AS max_boolean_column')
+      expected_string_str = ('COUNT (DISTINCT string_column)'
+                             ' AS n_distinct_string_column')
+
+      self.assertIn(expected_numeric_str, query)
+      self.assertIn(expected_boolean_str, query)
+      self.assertIn(expected_string_str, query)
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-# Copyright 2021 Google LLC.
+# Copyright 2024 Google LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,6 +28,12 @@ logging.getLogger().setLevel(logging.INFO)
 # BigQuery aggregate functions to apply to numerical and boolean columns.
 # https://cloud.google.com/bigquery/docs/reference/standard-sql/functions-and-operators#aggregate_functions
 _NUMERICAL_TRANSFORMATIONS = frozenset(['AVG', 'MAX', 'MIN', 'SUM'])
+
+_STRING_TRANSFORMATIONS = frozenset(['n_distinct', 'unique_list'])
+_STRING_TRANSFORMATIONS_DEFS = {
+    'n_distinct': 'COUNT (DISTINCT {field})',
+    'unique_list': 'TRIM(STRING_AGG(DISTINCT {field}, " " ORDER BY {field}))',
+}
 
 # SQL templates library
 _QUERY_TEMPLATE_FILES = {
@@ -338,11 +344,12 @@ def build_query(
 
   if 'string_or_categorical' in input_data_types:
     for feature in input_data_types['string_or_categorical']:
-      features_list.append(
-          f'TRIM(STRING_AGG(DISTINCT {feature}, " " ORDER BY '
-          f'{feature})) AS {feature}'
-      )
-      features_types['string_or_categorical'].append(feature)
+      for transformation in _STRING_TRANSFORMATIONS:
+        feature_name = f'{transformation.lower()}_{feature}'
+        feature_exp = _STRING_TRANSFORMATIONS_DEFS[transformation].format(
+            field=feature)
+        features_list.append(f'{feature_exp} AS {feature_name}')
+        features_types['string_or_categorical'].append(feature)
 
   features_types['numeric'].extend(list(_STATIC_NUMERIC_FEATURES))
   query_template = _read_file(_QUERY_TEMPLATE_FILES[query_type])

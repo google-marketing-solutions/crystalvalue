@@ -96,6 +96,7 @@ import pandas as pd
 from src import automl
 from src import custom_model
 from src import feature_engineering
+from src import ga4_data
 from src import model_evaluation
 from src import synthetic_data
 
@@ -118,6 +119,7 @@ class CrystalValue:
     credentials: The (optional) credentials to authenticate your Bigquery and
       AIplatform clients. If not passed, falls back to the default inferred
       from the environment.
+    ga4_table_name: The name of the GA4 transactions table to be created.
     training_table_name: The name of the training table to be created.
     predict_table_name: The name of the prediction features table to be created.
     customer_id_column: The name of the customer id column.
@@ -151,6 +153,7 @@ class CrystalValue:
   project_id: str
   dataset_id: str
   credentials: Optional[Any] = None
+  ga4_table_name: str = 'crystalvalue_ga4_data'
   training_table_name: str = 'crystalvalue_train_data'
   predict_table_name: str = 'crystalvalue_predict_data'
   customer_id_column: str = 'customer_id'
@@ -242,6 +245,34 @@ class CrystalValue:
         end_date=end_date,
         load_table_to_bigquery=True,
         location=self.location)
+
+  def preprocess_ga4_table(self,
+                           ga4_project_id: str,
+                           ga4_dataset_id: str,
+                           ga4_events_table_name: str,
+                           write_query_to_file: Optional[str] = None,
+                           ) -> pd.DataFrame:
+    """Creates a transaction dataset from GA4 and loads to Bigquery.
+
+    Args:
+      ga4_project_id: The Bigquery project with GA4 data
+      ga4_dataset_id: The Bigquery dataset with GA4 data
+      ga4_events_table_name: The Bigquery table with GA4 events level data
+      write_query_to_file: The file path to write the SQL query to.
+
+    Returns:
+      Transaction dataset as a dataframe
+    """
+    query = ga4_data.build_ga4_query(
+        ga4_project_id=ga4_project_id,
+        ga4_dataset_id=ga4_dataset_id,
+        ga4_events_table_name=ga4_events_table_name,
+        write_query_to_file=write_query_to_file,
+    )
+    return self.run_query(
+        query_sql=query,
+        destination_table_name=self.ga4_table_name
+    )
 
   def run_data_checks(self,
                       transaction_table_name: str,
