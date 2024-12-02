@@ -1,0 +1,63 @@
+# Copyright 2024 Google LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Inputs for the GA4 feature extraction.
+#
+# Contents of this file will be used to generate the SQL script for feature
+# extraction. The generated script can then be used as is or can be modified
+# to extract additional features.
+#
+# There are 4 high level attributes:
+#   event_name:
+#     A list of event names. A bool column will be generated for each
+#     event_name. These can then be aggregated to get features like number of
+#     events of a particular type in lookback window.
+#   event_params:
+#     A mapping of event_name to a list of event_param names. For each event_name
+#     and event_param, this will create a column by extracting the event_param
+#     from rows that correspond to the event_name. Will only look at string_value
+#     column in GA4 table for now.
+#   user_properties:
+#     A list of user_property names. Will only look at string_value column in GA4
+#     table for now.
+#   other:
+#     A list of other non-repeated fields
+
+event_name:
+  - add_payment_info
+  - add_shipping_info
+  - add_to_cart
+  - begin_checkout
+  - page_view
+  - purchase
+  - select_item
+  - select_promotion
+  - user_engagement
+  - view_item
+  - view_item_list
+  - view_promotion
+  - view_search_results
+
+event_params:
+  page_view:
+    - page_title
+
+user_properties:
+  - dimension10 # e.g. membership status
+
+other:
+  - device.category
+  - device.web_info.browser
+  - geo.city
+  - traffic_source.medium
