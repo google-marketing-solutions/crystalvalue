@@ -86,13 +86,12 @@ import json
 from typing import Any, Collection, Dict, List, Mapping, Optional
 
 from absl import logging
-from google.cloud import bigquery
-from google.cloud import storage
 from google.cloud import aiplatform
-from google.cloud.exceptions import NotFound
+from google.cloud import bigquery
+from google.cloud import exceptions
+from google.cloud import storage
 import numpy as np
 import pandas as pd
-
 from src import automl
 from src import custom_model
 from src import feature_engineering
@@ -136,6 +135,9 @@ class CrystalValue:
       'europe-west4' or 'us-east-4')
     days_lookback: The number of days to look back to create features.
     days_lookahead: The number of days to look ahead to predict value.
+    trigger_event_date_column: The name of the trigger event date column.
+    wait_days_to_score_from_event: The number of days to wait to score from the
+      trigger event.
     model_id: The ID of the model that will be created.
     endpoint_id: The ID of the endpoint that will be created for a deployed
       model.
@@ -164,6 +166,8 @@ class CrystalValue:
   location: str = 'europe-west4'
   days_lookback: int = 365
   days_lookahead: int = 365
+  trigger_event_date_column: Optional[str] = None
+  wait_days_to_score_from_event: int = 0
   model_id: Optional[str] = None
   endpoint_id: Optional[str] = None
   write_parameters: bool = False
@@ -182,13 +186,15 @@ class CrystalValue:
                  self.days_lookback)
     logging.info('Using days_lookahead for value prediction: %r',
                  self.days_lookahead)
+    logging.info('Using trigger_event_date_column for value prediction: %r',
+                 self.trigger_event_date_column)
     self.bigquery_client = bigquery.Client(
         project=self.project_id,
         location=self.location,
         credentials=self.credentials)
     try:
       self.bigquery_client.get_dataset(self.dataset_id)
-    except NotFound:
+    except exceptions.NotFound:
       logging.info('Dataset %r not found, creating the dataset %r '
                    'in project %r in location %r',
                    self.dataset_id, self.dataset_id, self.project_id,
@@ -209,7 +215,9 @@ class CrystalValue:
         'location': self.location,
         'model_id': self.model_id,
         'days_lookback': self.days_lookback,
-        'days_lookahead': self.days_lookahead
+        'days_lookahead': self.days_lookahead,
+        'trigger_event_date_column': self.trigger_event_date_column,
+        'wait_days_to_score_from_event': self.wait_days_to_score_from_event
     }
     with open(self.parameters_filename, 'w') as f:
       json.dump(parameters, f)
@@ -306,7 +314,8 @@ class CrystalValue:
       self,
       transaction_table_name: str,
       query_type: str = 'train_query',
-      write_executed_query_file: Optional[str] = None) -> pd.DataFrame:
+      write_executed_query_file: Optional[str] = None,
+      ) -> pd.DataFrame:
     """Builds train or predict query from transaction data through BigQuery.
 
     This function takes a transaction dataset (a BigQuery table that includes
@@ -353,8 +362,11 @@ class CrystalValue:
         days_lookahead=self.days_lookahead,
         customer_id_column=self.customer_id_column,
         date_column=self.date_column,
-        value_column=self.value_column)
+        value_column=self.value_column,
+        trigger_event_date_column=self.trigger_event_date_column,
+        wait_days_to_score_from_event=self.wait_days_to_score_from_event)
     self.features_types = features_types
+    table_name = ''
     if query_type == 'train_query':
       table_name = self.training_table_name
     elif query_type == 'predict_query':
@@ -537,6 +549,9 @@ class CrystalValue:
       destination_table: The table to either create (if it doesn't exist) or
         append predictions to within your dataset.
     """
+    if model_id:
+      self.model_id = model_id
+      print('Pipeline model_id reset: ', self.model_id)
     if not model_id:
       model_id = self.model_id
     batch_predictions = automl.create_batch_predictions(
@@ -575,6 +590,9 @@ class CrystalValue:
     Returns:
       Predictions.
     """
+    if model_id:
+      self.model_id = model_id
+      print('Pipeline model_id reset: ', self.model_id)
     if not model_id:
       if not self.model_id:
         raise ValueError('model_id is required for prediction.')
@@ -609,7 +627,7 @@ class CrystalValue:
           write_disposition=bigquery.WriteDisposition.WRITE_APPEND)
       logging.info('Appending to table %r in location %r', table_id,
                    self.location)
-    except NotFound:
+    except exceptions.NotFound:
       job_config = bigquery.job.LoadJobConfig(
           write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE)
       logging.info('Creating table %r in location %r', table_id, self.location)
@@ -630,6 +648,9 @@ class CrystalValue:
     Returns:
       AI Platform model object.
     """
+    if model_id:
+      self.model_id = model_id
+      print('Pipeline model_id reset: ', self.model_id)
     if not model_id:
       model_id = self.model_id
     model = automl.deploy_model(
@@ -661,6 +682,9 @@ class CrystalValue:
     Raises:
       ValueError if no model_id is specified.
     """
+    if model_id:
+      self.model_id = model_id
+      print('Pipeline model_id reset: ', self.model_id)
     if not model_id:
       if not self.model_id:
         raise ValueError('model_id is required for prediction.')
@@ -701,14 +725,14 @@ class CrystalValue:
     return bucket
 
   def load_dataframe_to_bigquery(self, data: pd.DataFrame,
-                                 bigquery_table_name: str) -> None:
+                                 bq_table_name: str) -> None:
     """Loads a dataframe to Bigquery.
 
     Args:
       data: The dataframe to load to Bigquery.
-      bigquery_table_name: The Bigquery table name to load the data to.
+      bq_table_name: The Bigquery table name to load the data to.
     """
     self.bigquery_client.load_table_from_dataframe(
         data,
-        destination=f'{self.project_id}.{self.dataset_id}.{bigquery_table_name}',
+        destination=f'{self.project_id}.{self.dataset_id}.{bq_table_name}',
         location=self.location).result()

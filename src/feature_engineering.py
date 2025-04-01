@@ -290,6 +290,8 @@ def build_query(
     customer_id_column: str = 'customer_id',
     date_column: str = 'date',
     value_column: str = 'value',
+    trigger_event_date_column: Optional[str] = None,
+    wait_days_to_score_from_event: int = 0
 ) -> Tuple[str, Mapping[str, List[str]]]:
   """Builds training or prediction query from transaction data through BigQuery.
 
@@ -316,6 +318,10 @@ def build_query(
     customer_id_column: The name of the customer id column.
     date_column: The name of the date column.
     value_column: The name of the value column.
+    trigger_event_date_column: The date that should trigger scoring. Useful for
+    lead scoring.
+    wait_days_to_score_from_event: The number of days after trigger event date
+    to score.
 
   Returns:
     The SQL script to generate training data ready for machine learning along
@@ -347,9 +353,31 @@ def build_query(
       for transformation in _STRING_TRANSFORMATIONS:
         feature_name = f'{transformation.lower()}_{feature}'
         feature_exp = _STRING_TRANSFORMATIONS_DEFS[transformation].format(
-            field=feature)
+            field=feature
+        )
         features_list.append(f'{feature_exp} AS {feature_name}')
         features_types['string_or_categorical'].append(feature)
+
+  # Modify cross join to allow event triggered scoring
+  date_window_join_sql = ''
+  if (trigger_event_date_column is not None) and (query_type == 'train_query'):
+    date_window_join_sql = (
+        'INNER JOIN DateWindowsTable \n ON'
+        f' DATE_ADD(DATE(TX_DATA.{trigger_event_date_column}), INTERVAL'
+        f' {wait_days_to_score_from_event} DAY) = DateWindowsTable.window_date'
+    )
+  elif (trigger_event_date_column is not None) and (
+      query_type == 'predict_query'
+  ):
+    date_window_join_sql = (
+        'INNER JOIN WindowDate \n ON'
+        f' DATE_ADD(DATE(TX_DATA.{trigger_event_date_column}), INTERVAL'
+        f' {wait_days_to_score_from_event} DAY) = WindowDate.date'
+    )
+  elif query_type == 'predict_query':
+    date_window_join_sql = 'CROSS JOIN WindowDate'
+  elif query_type == 'train_query':
+    date_window_join_sql = 'CROSS JOIN DateWindowsTable'
 
   features_types['numeric'].extend(list(_STATIC_NUMERIC_FEATURES))
   query_template = _read_file(_QUERY_TEMPLATE_FILES[query_type])
@@ -363,6 +391,7 @@ def build_query(
       value_column=value_column,
       days_lookback=days_lookback,
       days_lookahead=days_lookahead,
+      date_window_join_sql=date_window_join_sql,
       features_sql=', \n'.join(features_list),
   )
 

@@ -82,6 +82,68 @@ class FeatureEngineeringTest(unittest.TestCase):
       self.assertIn(expected_boolean_str, query)
       self.assertIn(expected_string_str, query)
 
+  def test_build_query_cross_join_train(self):
+    with mock.patch.object(
+        feature_engineering, '_read_file', return_value='{date_window_join_sql}'
+    ):
+      query, _ = feature_engineering.build_query(
+          bigquery_client=self.mock_client,
+          dataset_id=self.dataset_id,
+          transaction_table_name=self.transaction_table_name,
+          input_data_types=self.input_data_types,
+          query_type='train_query')
+      self.assertIn('CROSS JOIN DateWindowsTable', query)
+
+  def test_build_query_cross_join_predict(self):
+    with mock.patch.object(
+        feature_engineering, '_read_file', return_value='{date_window_join_sql}'
+    ):
+      query, _ = feature_engineering.build_query(
+          bigquery_client=self.mock_client,
+          dataset_id=self.dataset_id,
+          transaction_table_name=self.transaction_table_name,
+          input_data_types=self.input_data_types,
+          query_type='predict_query')
+      self.assertIn('CROSS JOIN WindowDate', query)
+
+  def test_build_query_event_triggered_train(self):
+    with mock.patch.object(
+        feature_engineering, '_read_file', return_value='{date_window_join_sql}'
+    ):
+      query, _ = feature_engineering.build_query(
+          bigquery_client=self.mock_client,
+          dataset_id=self.dataset_id,
+          transaction_table_name=self.transaction_table_name,
+          input_data_types=self.input_data_types,
+          query_type='train_query',
+          trigger_event_date_column='event_date',
+          wait_days_to_score_from_event=10,
+      )
+      self.assertIn(
+          'INNER JOIN DateWindowsTable \n ON DATE_ADD(DATE(TX_DATA.event_date),'
+          ' INTERVAL 10 DAY) = DateWindowsTable.window_date',
+          query,
+      )
+
+  def test_build_query_event_triggered_predict(self):
+    with mock.patch.object(
+        feature_engineering, '_read_file', return_value='{date_window_join_sql}'
+    ):
+      query, _ = feature_engineering.build_query(
+          bigquery_client=self.mock_client,
+          dataset_id=self.dataset_id,
+          transaction_table_name=self.transaction_table_name,
+          input_data_types=self.input_data_types,
+          query_type='predict_query',
+          trigger_event_date_column='event_date',
+          wait_days_to_score_from_event=10,
+      )
+      self.assertIn(
+          'INNER JOIN WindowDate \n ON DATE_ADD(DATE(TX_DATA.event_date),'
+          ' INTERVAL 10 DAY) = WindowDate.date',
+          query,
+      )
+
 
 if __name__ == '__main__':
   unittest.main()

@@ -28,6 +28,7 @@
 -- @param date_column STRING The column containing the transaction date.
 -- @param value_column STRING The column containing the value column.
 -- @param features_sql STRING The SQL for the features and transformations.
+-- @param date_window_join_sql STRING The SQL to join the date windows table with the txn table.
 
 WITH
   DateWindowsTable AS (
@@ -43,7 +44,7 @@ WITH
             DATE(
               (SELECT MAX({date_column}) FROM {project_id}.{dataset_id}.{table_name})),
             INTERVAL {days_lookahead} DAY),
-          INTERVAL 1 MONTH)) AS window_date
+          INTERVAL 1 DAY)) AS window_date
   ),
   CustomerWindows AS (
     SELECT DISTINCT
@@ -53,7 +54,7 @@ WITH
       DATE_ADD(DateWindowsTable.window_date, INTERVAL 1 day) AS lookahead_start,
       DATE_ADD(DateWindowsTable.window_date, INTERVAL {days_lookahead} day) AS lookahead_stop
     FROM {project_id}.{dataset_id}.{table_name} AS TX_DATA
-    CROSS JOIN DateWindowsTable
+    {date_window_join_sql}
   ),
   Target AS (
     SELECT
