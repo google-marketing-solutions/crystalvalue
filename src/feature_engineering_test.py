@@ -144,6 +144,21 @@ class FeatureEngineeringTest(unittest.TestCase):
           query,
       )
 
+  def test_build_query_predict_date_filter(self):
+    with mock.patch.object(
+        feature_engineering,
+        '_read_file',
+        return_value='{optional_predict_date_filter_sql}',
+    ):
+      query, _ = feature_engineering.build_query(
+          bigquery_client=self.mock_client,
+          dataset_id=self.dataset_id,
+          transaction_table_name=self.transaction_table_name,
+          input_data_types=self.input_data_types,
+          query_type='predict_query',
+          predict_date='2025-01-01',
+      )
+      self.assertIn('WHERE DATE(date) = "2025-01-01"', query)
 
 if __name__ == '__main__':
   unittest.main()

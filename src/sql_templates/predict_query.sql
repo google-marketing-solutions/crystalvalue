@@ -24,6 +24,7 @@ WITH
   WindowDate AS (
     SELECT DATE(MAX({date_column})) as date
     FROM {project_id}.{dataset_id}.{table_name}
+    {optional_predict_date_filter_sql}
   ),
   CustomerWindows AS (
     SELECT

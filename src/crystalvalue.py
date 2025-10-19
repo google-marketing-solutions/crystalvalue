@@ -315,7 +315,8 @@ class CrystalValue:
       transaction_table_name: str,
       query_type: str = 'train_query',
       write_executed_query_file: Optional[str] = None,
-      ) -> pd.DataFrame:
+      predict_date: Optional[str] = None
+    ) -> pd.DataFrame:
     """Builds train or predict query from transaction data through BigQuery.
 
     This function takes a transaction dataset (a BigQuery table that includes
@@ -330,6 +331,8 @@ class CrystalValue:
       query_type: The query type. Has to be one of the keys in
         feature_engineering._QUERY_TEMPLATE_FILES.
       write_executed_query_file: File path to write the generated SQL query.
+      predict_date: The date to filter the data for prediction. If None, no
+        filter will be applied.
 
     Returns:
       The SQL script to generate training data ready for machine learning.
@@ -364,7 +367,8 @@ class CrystalValue:
         date_column=self.date_column,
         value_column=self.value_column,
         trigger_event_date_column=self.trigger_event_date_column,
-        wait_days_to_score_from_event=self.wait_days_to_score_from_event)
+        wait_days_to_score_from_event=self.wait_days_to_score_from_event,
+        predict_date=predict_date)
     self.features_types = features_types
     table_name = ''
     if query_type == 'train_query':

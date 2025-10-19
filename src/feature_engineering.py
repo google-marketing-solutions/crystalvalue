@@ -291,7 +291,8 @@ def build_query(
     date_column: str = 'date',
     value_column: str = 'value',
     trigger_event_date_column: Optional[str] = None,
-    wait_days_to_score_from_event: int = 0
+    wait_days_to_score_from_event: int = 0,
+    predict_date: Optional[str] = None,
 ) -> Tuple[str, Mapping[str, List[str]]]:
   """Builds training or prediction query from transaction data through BigQuery.
 
@@ -319,9 +320,11 @@ def build_query(
     date_column: The name of the date column.
     value_column: The name of the value column.
     trigger_event_date_column: The date that should trigger scoring. Useful for
-    lead scoring.
+      lead scoring.
     wait_days_to_score_from_event: The number of days after trigger event date
-    to score.
+      to score.
+    predict_date: The date to filter the data for prediction. If None, no filter
+      will be applied.
 
   Returns:
     The SQL script to generate training data ready for machine learning along
@@ -379,6 +382,19 @@ def build_query(
   elif query_type == 'train_query':
     date_window_join_sql = 'CROSS JOIN DateWindowsTable'
 
+  if query_type == 'predict_query' and predict_date is not None:
+    try:
+      datetime.datetime.strptime(predict_date, '%Y-%m-%d')
+    except ValueError:
+      raise ValueError(
+          f'predict_date {predict_date} is not in the right format.'
+      ) from ValueError
+    date_filter_sql = (
+        f'WHERE DATE({date_column}) = "{predict_date}"'
+    )
+  else:
+    date_filter_sql = ''
+
   features_types['numeric'].extend(list(_STATIC_NUMERIC_FEATURES))
   query_template = _read_file(_QUERY_TEMPLATE_FILES[query_type])
 
@@ -393,6 +409,7 @@ def build_query(
       days_lookahead=days_lookahead,
       date_window_join_sql=date_window_join_sql,
       features_sql=', \n'.join(features_list),
+      optional_predict_date_filter_sql=date_filter_sql,
   )
 
   if write_executed_query_file:
